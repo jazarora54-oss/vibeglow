@@ -1,0 +1,18 @@
+import type { Metadata } from "next";
+import { Cormorant_Garamond, Jost } from "next/font/google";
+import "./globals.css";
+import { CartProvider } from "@/components/CartProvider";
+import AnnouncementBar from "@/components/layout/AnnouncementBar";
+import Header from "@/components/layout/Header";
+import Footer from "@/components/layout/Footer";
+import MiniCart from "@/components/cart/MiniCart";
+import Toast from "@/components/cart/Toast";
+import AIChatButton from "@/components/chat/AIChatButton";
+const display = Cormorant_Garamond({ subsets: ["latin"], weight: ["500", "600", "700"], style: ["normal", "italic"], variable: "--font-display" });
+const sans = Jost({ subsets: ["latin"], variable: "--font-sans" });
+export const metadata: Metadata = { title: "VEDAGLOW – Ancient Wisdom. Modern Glow.", description: "Pure, natural & effective beauty and wellness products for your daily care." };
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (<html lang="en" className={`${display.variable} ${sans.variable}`}><body>
+    <CartProvider><AnnouncementBar /><Header /><main>{children}</main><Footer /><AIChatButton /><MiniCart /><Toast /></CartProvider>
+  </body></html>);
+}
