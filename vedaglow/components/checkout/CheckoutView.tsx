@@ -7,7 +7,8 @@ import EmptyCart from "@/components/cart/EmptyCart"; import CouponBox from "@/co
 import { calculateSummary, getShippingMethod } from "@/lib/cart/cartCalculations";
 import { DEFAULT_SHIPPING_ID } from "@/lib/cart/config";
 import { cartIssues, getLiveStock } from "@/lib/cart/validate";
-import { createOrder } from "@/lib/orders";
+import { createOrder, storeOrderLocally } from "@/lib/orders";
+import { submitOrder } from "@/app/actions/store";
 import { emptyAddress, validateAddress, validateContact, type Errors } from "@/lib/checkout/validation";
 import type { Address, CustomerInformation } from "@/types";
 import AddressForm from "./AddressForm"; import CheckoutSteps from "./CheckoutSteps"; import CheckoutSummary from "./CheckoutSummary"; import ContactForm from "./ContactForm"; import DeliveryMethod from "./DeliveryMethod"; import PaymentPlaceholder from "./PaymentPlaceholder";
@@ -33,7 +34,14 @@ export default function CheckoutView() {
     const errs = { ...validateContact(contact), ...prefixErr(validateAddress(ship), "ship_"), ...(same ? {} : prefixErr(validateAddress(bill), "bill_")) };
     setErrors(errs); if (Object.keys(errs).length) { setFormMsg("Please fix the highlighted fields."); setTimeout(() => document.querySelector<HTMLElement>("[aria-invalid=true]")?.focus(), 0); return; }
     setFormMsg(""); setPlacing(true);
-    const order = createOrder(fresh, { contact, shipping_address: ship, billing_address: same ? ship : bill, billing_same_as_shipping: same, shipping_method_id: delivery, payment_method: pay || "Not selected (demo)" }, coupon);
+    const checkout = { contact, shipping_address: ship, billing_address: same ? ship : bill, billing_same_as_shipping: same, shipping_method_id: delivery, payment_method: pay || "Not selected (demo)" };
+    let order = null as ReturnType<typeof createOrder> | null;
+    try {
+      const r = await submitOrder({ items: fresh.map(i => ({ product_id: i.product_id, variant_id: i.variant_id, quantity: i.quantity })), checkout, coupon_code: coupon?.code });
+      if (r.status === "error") { setPlacing(false); setFormMsg(r.message); return; }
+      if (r.status === "ok") order = storeOrderLocally(r.order);
+    } catch { setPlacing(false); setFormMsg("We couldn't place your order. Please check your connection and try again."); return; }
+    if (!order) order = createOrder(fresh, checkout, coupon); // backend not connected yet: demo order on this device
     notify("Order confirmed."); router.push(`/order-confirmation/${order.id}`); setTimeout(clearCart, 400);
   };
   return (

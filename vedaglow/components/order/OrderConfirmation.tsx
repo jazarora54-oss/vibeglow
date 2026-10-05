@@ -17,7 +17,7 @@ export default function OrderConfirmation({ orderId }: { orderId: string }) {
       <div className="mt-8 text-center"><span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-forest text-white"><Check size={32} /></span>
         <h1 className="mt-4 font-display text-4xl font-semibold text-forest">✓ ORDER CONFIRMED</h1><p className="mt-2 text-ink/70">Thank you for your order!</p>
         <p className="mt-3 text-sm text-ink/60">Order Number</p><p className="text-xl font-bold tracking-wide text-gold-dark">{order.id}</p>
-        <p className="mx-auto mt-3 max-w-md rounded-lg bg-cream-dark p-3 text-xs text-ink/70">This is a demo order saved on this device only. No payment was taken and no confirmation email is sent yet.</p></div>
+        <p className="mx-auto mt-3 max-w-md rounded-lg bg-cream-dark p-3 text-xs text-ink/70">Your order has been received. No payment has been taken yet and no confirmation email is sent yet. A copy is kept on this device.</p></div>
       <div id="order-details" className="mt-10 grid items-start gap-8 lg:grid-cols-[1fr_380px]">
         <div className="space-y-5">
           <section className="rounded-2xl border border-forest/10 bg-white p-5 shadow-card"><h2 className="mb-2 font-display text-2xl font-semibold text-forest">Shipping address</h2>
