@@ -1,16 +1,9 @@
 import type { CartItem } from "@/types";
-import { getProductBySlug } from "@/lib/data/products";
+import { getStockForLines } from "@/app/actions/store";
 import { lineKey } from "@/components/CartProvider";
-/** Live stock per cart line (key -> stock). Swap getProductBySlug for a Supabase query later; the real check must also run on the server. */
-export async function getLiveStock(items: CartItem[]): Promise<Record<string, number>> {
-  const out: Record<string, number> = {};
-  await Promise.all(items.map(async i => {
-    const p = i.slug ? await getProductBySlug(i.slug) : null;
-    const v = p?.variants?.find(x => x.id === i.variant_id);
-    out[lineKey(i)] = !p ? 0 : v ? v.stock : i.variant_id ? 0 : p.stock;
-  }));
-  return out;
-}
+/** Live stock per cart line (key -> stock), read on the server from the database. */
+export const getLiveStock = (items: CartItem[]): Promise<Record<string, number>> =>
+  getStockForLines(items.map(i => ({ key: lineKey(i), slug: i.slug, variant_id: i.variant_id })));
 export type CartIssue = { key: string; name: string; message: string };
 export const cartIssues = (items: CartItem[]): CartIssue[] => items.flatMap(i => {
   const key = lineKey(i); const max = i.max_stock ?? Infinity; const name = i.name ?? "Item";

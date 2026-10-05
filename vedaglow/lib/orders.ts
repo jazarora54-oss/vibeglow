@@ -17,7 +17,11 @@ export function createOrder(items: CartItem[], checkout: CheckoutData, coupon?: 
     id: newOrderId(), created_at: new Date().toISOString(), status: "pending-payment", summary, checkout, shipping_method: method, estimated_delivery: `${deliveryRange()} (${method.eta})`,
     items: items.map(i => ({ product_id: i.product_id, variant_id: i.variant_id, name: i.name ?? "Product", slug: i.slug, variant_label: i.variant_label, sku: i.sku, image: i.image, visual: i.visual, quantity: i.quantity, unit_price: i.unit_price, line_total: Math.round(i.quantity * i.unit_price * 100) / 100 })),
   };
-  try { localStorage.setItem(KEY, JSON.stringify([order, ...read()].slice(0, 20))); } catch { /* storage unavailable */ }
+  return storeOrderLocally(order);
+}
+/** Keeps a copy on this device so the confirmation page can show it. */
+export function storeOrderLocally(order: TemporaryOrder): TemporaryOrder {
+  try { localStorage.setItem(KEY, JSON.stringify([order, ...read().filter(o => o.id !== order.id)].slice(0, 20))); } catch { /* storage unavailable */ }
   return order;
 }
 export const getOrder = (id: string): TemporaryOrder | null => read().find(o => o.id === id) ?? null;

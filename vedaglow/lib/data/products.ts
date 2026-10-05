@@ -1,6 +1,9 @@
 import type { ShopQuery } from "@/lib/shop";
 import { CATEGORY_OPTIONS } from "@/lib/shop";
 import type { Product } from "@/types";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { publicClient } from "@/lib/supabase/public";
+import { rowToProduct } from "./mappers";
 // Data-access layer: components never import the array directly.
 // In Step 3 replace the bodies of these functions with Supabase queries.
 /**
@@ -9,7 +12,7 @@ import type { Product } from "@/types";
  * (4-10 images). Empty arrays keep the generated placeholder gallery.
  * Product detail text below is SAMPLE content - edit freely.
  */
-const products: Product[] = [
+const localProducts: Product[] = [
   { id: "p1", product_type: "Shampoo", suitable_for: "Everyday hair care", description: "Onion Shampoo designed for everyday hair cleansing and care.", ingredients: "Onion seed oil, plant-based cleansing ingredients and conditioning ingredients.", benefits: "Helps cleanse hair and leaves hair feeling soft and manageable.", how_to_use: "Apply to wet hair, massage gently into the scalp and hair, then rinse thoroughly.", size_quantity: "Available in 100ml, 200ml and 400ml variants.", shipping_info: "Orders are processed according to the store shipping policy.", return_info: "Returns are subject to the store return policy.", brand: "Mamaearth", variants: [{ id: "p1-v1", sku: "MM-OSH-100", label: "100ml", size: "100ml", price: 8.49, compare_at_price: 10.99, stock: 12 }, { id: "p1-v2", sku: "MM-OSH-200", label: "200ml", size: "200ml", price: 12.79, compare_at_price: 15.99, stock: 3 }, { id: "p1-v3", sku: "MM-OSH-400", label: "400ml", size: "400ml", price: 19.99, compare_at_price: 24.99, stock: 0 }], slug: "mamaearth-onion-shampoo", name: "Mamaearth Onion Shampoo", short_description: "200ml", category: "hair-care", price: 12.79, compare_at_price: 15.99, rating: 4.5, review_count: 126, images: [], visual: { kind: "bottle", label: "Onion Shampoo", color: "#B5446E" }, tags: ["best-seller", "featured"], stock: 40, created_at: "2026-06-01" },
   { id: "p2", product_type: "Gel Moisturizer", size: "50g", sku: "BQ-BHG-50", suitable_for: "Daily skin care", description: "A light gel moisturizer for everyday skin care.", benefits: "Leaves skin feeling soft and moisturized.", how_to_use: "Apply a small amount to clean skin and massage gently until absorbed.", size_quantity: "Net quantity: 50g.", ingredients: "Refer to the product packaging for the full ingredient list.", shipping_info: "Orders are processed according to the store shipping policy.", return_info: "Returns are subject to the store return policy.", brand: "Biotique", slug: "biotique-bio-honey-gel", name: "Biotique Bio Honey Gel", short_description: "Moisturizer 50g", category: "skin-care", price: 8.49, compare_at_price: 9.99, rating: 3.5, review_count: 98, images: [], visual: { kind: "jar", label: "Honey Gel", color: "#C9A24B" }, tags: ["best-seller", "sale"], stock: 25, created_at: "2026-05-12" },
   { id: "p3", product_type: "Aloe Vera Gel", size: "100g", sku: "VG-AVG-100", suitable_for: "Face and body", description: "A pure and natural aloe vera gel for daily skin and body care.", benefits: "Leaves skin feeling soothed, fresh and hydrated.", how_to_use: "Apply a thin layer to clean skin and massage gently. Use daily as part of your routine.", size_quantity: "Net quantity: 100g.", ingredients: "Refer to the product packaging for the full ingredient list.", shipping_info: "Orders are processed according to the store shipping policy.", return_info: "Returns are subject to the store return policy.", brand: "VEDAGLOW", slug: "vedaglow-aloe-vera-gel", name: "VEDAGLOW Aloe Vera Gel", short_description: "Pure & Natural 100g", category: "skin-care", price: 7.19, compare_at_price: 7.99, rating: 4, review_count: 73, images: [], visual: { kind: "jar", label: "Aloe Vera Gel", color: "#4C8F4A" }, tags: ["best-seller", "featured"], stock: 80, created_at: "2026-04-20" },
@@ -23,16 +26,29 @@ const products: Product[] = [
   { id: "p11", product_type: "Toothpaste", size: "100g", sku: "VG-NHT-100", suitable_for: "Daily oral care", description: "A herbal toothpaste for everyday oral care.", benefits: "Helps keep teeth clean and breath feeling fresh.", how_to_use: "Brush twice daily with a pea-sized amount, then rinse. Do not swallow.", size_quantity: "Net quantity: 100g.", ingredients: "Refer to the product packaging for the full ingredient list.", shipping_info: "Orders are processed according to the store shipping policy.", return_info: "Returns are subject to the store return policy.", brand: "VEDAGLOW", slug: "vedaglow-neem-herbal-toothpaste", name: "VEDAGLOW Neem Herbal Toothpaste", short_description: "Fluoride-free fresh care 100g", category: "oral-care", price: 4.99, rating: 4, review_count: 38, images: [], visual: { kind: "tube", label: "Neem Paste", color: "#3F8F5A" }, tags: ["new"], stock: 120, created_at: "2026-09-28" },
   { id: "p12", product_type: "Body Scrub", size: "200g", sku: "VG-CBS-200", suitable_for: "Body care", description: "A smoothing body scrub for a weekly exfoliating routine.", benefits: "Helps leave skin feeling smooth and refreshed.", how_to_use: "Massage onto damp skin in gentle circular motions, then rinse well. Avoid broken skin.", size_quantity: "Net quantity: 200g.", ingredients: "Refer to the product packaging for the full ingredient list.", shipping_info: "Orders are processed according to the store shipping policy.", return_info: "Returns are subject to the store return policy.", brand: "VEDAGLOW", slug: "vedaglow-coffee-body-scrub", name: "VEDAGLOW Coffee Body Scrub", short_description: "Smoothing exfoliant 200g", category: "body-care", price: 12.5, compare_at_price: 15, rating: 4, review_count: 29, images: [], visual: { kind: "jar", label: "Body Scrub", color: "#5A3A26" }, tags: ["sale", "new"], stock: 30, created_at: "2026-09-05" },
 ];
+
+/** Demo products bundled with the code (also used by the admin "Import demo products" button). */
+export const getLocalProducts = () => localProducts;
+/** Live products from Supabase when configured; the bundled demo data otherwise (or if the database is unreachable). */
+async function loadAll(): Promise<Product[]> {
+  if (!isSupabaseConfigured) return localProducts;
+  try {
+    const { data, error } = await publicClient().from("products").select("*").eq("is_active", true).order("created_at", { ascending: false });
+    if (error || !data) { console.error("Supabase products error:", error?.message); return localProducts; }
+    return data.map(rowToProduct);
+  } catch (e) { console.error("Supabase unreachable:", e); return localProducts; }
+}
 export type ProductFilter = { tag?: Product["tags"][number]; category?: string; limit?: number; excludeId?: string };
 export async function getProducts(f: ProductFilter = {}): Promise<Product[]> {
-  const r = products.filter(p => (!f.tag || p.tags.includes(f.tag)) && (!f.category || p.category === f.category) && p.id !== f.excludeId);
+  const r = (await loadAll()).filter(p => (!f.tag || p.tags.includes(f.tag)) && (!f.category || p.category === f.category) && p.id !== f.excludeId);
   return f.limit ? r.slice(0, f.limit) : r;
 }
-export async function getProductBySlug(slug: string): Promise<Product | null> { return products.find(p => p.slug === slug) ?? null; }
+export async function getProductBySlug(slug: string): Promise<Product | null> { return (await loadAll()).find(p => p.slug === slug) ?? null; }
 /** Same-category first, topped up with other products so the section is never nearly empty. */
 export async function getRelatedProducts(p: Product, limit = 4) {
-  const same = products.filter(x => x.category === p.category && x.id !== p.id);
-  const rest = products.filter(x => x.category !== p.category && x.id !== p.id);
+  const all = await loadAll();
+  const same = all.filter(x => x.category === p.category && x.id !== p.id);
+  const rest = all.filter(x => x.category !== p.category && x.id !== p.id);
   return [...same, ...rest].slice(0, limit);
 }
 
@@ -41,7 +57,7 @@ const isSale = (p: Product) => p.tags.includes("sale") || (p.compare_at_price ??
 export async function queryProducts(q: ShopQuery): Promise<Product[]> {
   const terms = q.search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
   const special = [q.isNew && "new", q.bestSeller && "best-seller", q.featured && "featured"].filter(Boolean) as string[];
-  const r = products.filter(p => {
+  const r = (await loadAll()).filter(p => {
     const hay = [p.name, p.short_description, p.category, CATEGORY_OPTIONS.find(c => c.slug === p.category)?.name, ...p.tags].join(" ").toLowerCase();
     if (!terms.every(t => hay.includes(t))) return false;
     if (q.category.length && !q.category.includes(p.category)) return false;
