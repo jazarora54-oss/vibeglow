@@ -1,2 +1,14 @@
-   [[plugins]]
-     package = "@netlify/plugin-nextjs"
+# Netlify settings for VEDAGLOW (Next.js).
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # The Supabase URL + anon/publishable key are PUBLIC by design (they ship to the browser).
+  # Without this, Netlify's secret scanner finds them in the build output and fails the deploy.
+  SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY"
+
+# Makes sure Netlify's Next.js runtime (serves pages, server actions, middleware) is always used.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
