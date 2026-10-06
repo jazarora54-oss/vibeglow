@@ -13,7 +13,7 @@ export default function BannerSlider({ banners }: { banners: Banner[] }) {
       <div className="relative h-60 sm:h-80 lg:h-[26rem]">
         {banners.map((x, k) => (
           <div key={x.id} className={`absolute inset-0 transition-opacity duration-700 ${k === i ? "opacity-100" : "pointer-events-none opacity-0"}`} aria-hidden={k !== i}>
-            <img src={x.image_url} alt={x.title || "VEDAGLOW offer"} className="h-full w-full object-cover" loading={k === 0 ? "eager" : "lazy"} />
+            {/\.(mp4|webm)(\?|$)/i.test(x.image_url) ? <video src={x.image_url} muted loop autoPlay playsInline preload={k === 0 ? "auto" : "metadata"} aria-label={x.title || "VEDAGLOW offer"} className="h-full w-full object-cover" /> : <img src={x.image_url} alt={x.title || "VEDAGLOW offer"} className="h-full w-full object-cover" loading={k === 0 ? "eager" : "lazy"} />}
             {(x.title || x.subtitle || x.button_text) && <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/20 to-transparent" />}
             {(x.title || x.subtitle || x.button_text) && <div className="absolute inset-0 mx-auto flex max-w-7xl flex-col justify-center px-6 text-white sm:px-10">
               {x.title && <h2 className="max-w-xl font-display text-3xl font-semibold leading-tight sm:text-5xl">{x.title}</h2>}

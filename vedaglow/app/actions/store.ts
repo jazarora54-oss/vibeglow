@@ -6,6 +6,7 @@ import { serviceClient } from "@/lib/supabase/server";
 import { findCoupon, calculateSummary, getShippingMethod } from "@/lib/cart/cartCalculations";
 import { DELIVERY_DAYS } from "@/lib/cart/config";
 import { getProductBySlug } from "@/lib/data/products";
+import { answerQuestion } from "@/lib/chatbot";
 import { validateAddress, validateContact } from "@/lib/checkout/validation";
 
 /** Coupon check. Database coupons when Supabase is configured, otherwise the demo coupons. */
@@ -90,4 +91,38 @@ export async function getStockForLines(lines: { key: string; slug?: string; vari
     out[String(l.key)] = !p ? 0 : v ? v.stock : l.variant_id ? 0 : p.stock;
   }));
   return out;
+}
+
+/** Chat assistant (free, rule-based; answers from admin -> FAQs and the product list). */
+export async function askAssistant(message: string): Promise<string> { return answerQuestion(message); }
+
+/** Contact form -> saved in the database; you read it in admin -> Messages. */
+export async function submitContact(input: { name: string; email: string; subject?: string; message: string; website?: string }): Promise<{ ok: boolean; message: string }> {
+  if (input?.website) return { ok: true, message: "Thank you! We will get back to you soon." }; // hidden field filled = bot
+  const name = String(input?.name ?? "").trim().slice(0, 100), email = String(input?.email ?? "").trim().slice(0, 160);
+  const subject = String(input?.subject ?? "").trim().slice(0, 150), message = String(input?.message ?? "").trim().slice(0, 4000);
+  if (name.length < 2) return { ok: false, message: "Please enter your name." };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, message: "Please enter a valid email address." };
+  if (message.length < 10) return { ok: false, message: "Please write a little more in your message." };
+  const db = serviceClient();
+  if (!isSupabaseConfigured || !db) return { ok: false, message: "Messaging is not available right now. Please try again later." };
+  const { error } = await db.from("messages").insert({ name, email, subject: subject || null, message });
+  if (error) { console.error("contact insert failed:", error.message); return { ok: false, message: "Could not send your message. Please try again." }; }
+  return { ok: true, message: "Thank you! Your message has been sent. We will get back to you soon." };
+}
+
+export type TrackResult =
+  | { ok: true; order: { id: string; status: string; payment_status: string; tracking_info?: string; estimated_delivery?: string; total: number; items: { name: string; variant_label?: string; quantity: number }[] } }
+  | { ok: false; message: string };
+/** Customer order tracking. Needs BOTH the order number and the matching email, so strangers cannot browse orders. */
+export async function trackOrder(orderId: string, email: string): Promise<TrackResult> {
+  const nope: TrackResult = { ok: false, message: "We could not find an order with those details. Please check the order number and email." };
+  const id = String(orderId ?? "").trim().toUpperCase().slice(0, 40), em = String(email ?? "").trim().toLowerCase().slice(0, 160);
+  if (!id || !em) return nope;
+  const db = serviceClient();
+  if (!isSupabaseConfigured || !db) return { ok: false, message: "Order tracking is not available yet." };
+  const { data } = await db.from("orders").select("id,status,payment_status,tracking_info,total,email,data").eq("id", id).maybeSingle();
+  if (!data || String(data.email).trim().toLowerCase() !== em) return nope;
+  const o = data.data as TemporaryOrder;
+  return { ok: true, order: { id: data.id, status: data.status, payment_status: data.payment_status, tracking_info: data.tracking_info ?? undefined, estimated_delivery: o.estimated_delivery, total: Number(data.total), items: (o.items ?? []).map(i => ({ name: i.name, variant_label: i.variant_label, quantity: i.quantity })) } };
 }

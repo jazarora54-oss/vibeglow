@@ -13,10 +13,10 @@ export default function BannerManager({ banners }: { banners: Banner[] }) {
   const del = (id: string) => { if (confirm("Delete this banner?")) start(async () => { await deleteBanner(id); router.refresh(); }); };
   return (<div className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="font-display text-4xl font-semibold text-forest">Homepage banners</h1>{!edit && <button className={btn} onClick={() => setEdit(blank(banners.length))}>+ Add banner</button>}</div>
-    <p className="text-sm text-ink/60">Active banners replace the default hero on the homepage and slide automatically. Best size: wide image about 1600 × 600 px. With no active banners, the original hero is shown.</p>
+    <p className="text-sm text-ink/60">Active banners replace the default hero on the homepage and slide automatically. Best size: wide image about 1600 × 600 px. You can upload a normal image, an animated <b>GIF</b>, or a short <b>MP4/WebM video</b> (up to 25 MB; it plays silently on a loop). With no active banners, the original hero is shown.</p>
     {edit && <section className={card}><h2 className="mb-4 font-display text-2xl font-semibold text-forest">{edit.id ? "Edit banner" : "New banner"}</h2>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="sm:col-span-2"><span className={lbl}>Image *</span><ImageUploader multiple={false} folder="banners" value={edit.image_url ? [edit.image_url] : []} onChange={v => set("image_url", v[0] ?? "")} /></div>
+        <div className="sm:col-span-2"><span className={lbl}>Banner image, GIF or video *</span><ImageUploader multiple={false} allowVideo folder="banners" value={edit.image_url ? [edit.image_url] : []} onChange={v => set("image_url", v[0] ?? "")} /></div>
         <div><label className={lbl}>Headline (optional)</label><input className={inp} value={edit.title} onChange={e => set("title", e.target.value)} /></div>
         <div><label className={lbl}>Sub-text (optional)</label><input className={inp} value={edit.subtitle} onChange={e => set("subtitle", e.target.value)} /></div>
         <div><label className={lbl}>Button text (empty = whole banner is a link)</label><input className={inp} value={edit.button_text} onChange={e => set("button_text", e.target.value)} /></div>
@@ -26,7 +26,7 @@ export default function BannerManager({ banners }: { banners: Banner[] }) {
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3"><button className={btn} disabled={pending} onClick={save}>{pending ? "Saving…" : "Save banner"}</button><button className={btn2} onClick={() => { setEdit(null); setMsg(""); }}>Cancel</button>{msg && <p role="alert" className="text-sm text-red-700">⚠ {msg}</p>}</div></section>}
     {banners.length === 0 && !edit && <p className={`${card} text-sm text-ink/60`}>No banners yet.</p>}
-    <div className="grid gap-4 sm:grid-cols-2">{banners.map(b => <div key={b.id} className={`${card} p-3`}><img src={b.image_url} alt="" className="h-36 w-full rounded-lg object-cover" /><p className="mt-2 font-semibold">{b.title || "(no headline)"} <span className="text-xs font-normal text-ink/50">· order {b.sort_order} · {b.is_active ? "visible" : "hidden"}</span></p>
+    <div className="grid gap-4 sm:grid-cols-2">{banners.map(b => <div key={b.id} className={`${card} p-3`}>{/\.(mp4|webm)(\?|$)/i.test(b.image_url) ? <video src={b.image_url} muted loop autoPlay playsInline className="h-36 w-full rounded-lg object-cover" /> : <img src={b.image_url} alt="" className="h-36 w-full rounded-lg object-cover" />}<p className="mt-2 font-semibold">{b.title || "(no headline)"} <span className="text-xs font-normal text-ink/50">· order {b.sort_order} · {b.is_active ? "visible" : "hidden"}</span></p>
       <div className="mt-2 flex gap-2"><button className={btn2} onClick={() => { setEdit({ ...b }); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Edit</button><button className={btnDanger} disabled={pending} onClick={() => del(b.id)}>Delete</button></div></div>)}</div>
   </div>);
 }

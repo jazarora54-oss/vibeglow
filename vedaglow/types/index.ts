@@ -11,6 +11,9 @@ export interface Product {
   price: number; compare_at_price?: number; rating: number; review_count: number;
   images: string[]; visual: { kind: ProductVisualKind; label: string; color: string };
   tags: ("best-seller" | "new" | "sale" | "featured")[]; variants?: ProductVariant[]; stock: number; created_at: string;
+  // SEO + eBay-style details + ranking (all optional)
+  seo_title?: string; seo_description?: string; seo_keywords?: string; specifics?: { name: string; value: string }[]; sort_priority?: number;
+  gtin?: string; mpn?: string; condition?: string; weight_g?: number; dimensions?: string; country_of_origin?: string; shelf_life?: string;
 }
 export interface CartItem { product_id: string; variant_id?: string; quantity: number; unit_price: number; slug?: string; name?: string; image?: string; variant_label?: string; sku?: string; max_stock?: number; visual?: Product["visual"] }
 export interface Customer { id: string; email: string; first_name?: string; last_name?: string }

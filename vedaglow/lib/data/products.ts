@@ -33,7 +33,10 @@ export const getLocalProducts = () => localProducts;
 async function loadAll(): Promise<Product[]> {
   if (!isSupabaseConfigured) return localProducts;
   try {
-    const { data, error } = await publicClient().from("products").select("*").eq("is_active", true).order("created_at", { ascending: false });
+    const db = publicClient();
+    // Boosted products first (admin -> Search & ranking), then newest.
+    let { data, error } = await db.from("products").select("*").eq("is_active", true).order("sort_priority", { ascending: false }).order("created_at", { ascending: false });
+    if (error) ({ data, error } = await db.from("products").select("*").eq("is_active", true).order("created_at", { ascending: false })); // before migration-2
     if (error || !data) { console.error("Supabase products error:", error?.message); return localProducts; }
     return data.map(rowToProduct);
   } catch (e) { console.error("Supabase unreachable:", e); return localProducts; }
@@ -68,7 +71,7 @@ export async function queryProducts(q: ShopQuery): Promise<Product[]> {
     return true;
   });
   const by: Record<string, (a: Product, b: Product) => number> = {
-    featured: (a, b) => Number(b.tags.includes("featured")) - Number(a.tags.includes("featured")) || b.rating - a.rating,
+    featured: (a, b) => (b.sort_priority ?? 0) - (a.sort_priority ?? 0) || Number(b.tags.includes("featured")) - Number(a.tags.includes("featured")) || b.rating - a.rating,
     newest: (a, b) => b.created_at.localeCompare(a.created_at), "best-selling": (a, b) => b.review_count - a.review_count,
     "price-low": (a, b) => a.price - b.price, "price-high": (a, b) => b.price - a.price, rating: (a, b) => b.rating - a.rating || b.review_count - a.review_count,
   };

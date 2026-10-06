@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { LayoutDashboard, Package, Image as Img, Ticket, ShoppingBag, ExternalLink, LogOut } from "lucide-react";
+import { LayoutDashboard, Package, Image as Img, Ticket, ShoppingBag, FileText, HelpCircle, Mail, Settings, ExternalLink, LogOut } from "lucide-react";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { serverClient } from "@/lib/supabase/server";
 import AdminSetup from "@/components/admin/AdminSetup";
 import { signOut } from "./actions";
 export const metadata: Metadata = { title: "VEDAGLOW Admin", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
-const nav = [{ href: "/admin", label: "Dashboard", I: LayoutDashboard }, { href: "/admin/products", label: "Products", I: Package }, { href: "/admin/banners", label: "Banners", I: Img }, { href: "/admin/coupons", label: "Coupons", I: Ticket }, { href: "/admin/orders", label: "Orders", I: ShoppingBag }];
+const nav = [{ href: "/admin", label: "Dashboard", I: LayoutDashboard }, { href: "/admin/products", label: "Products", I: Package }, { href: "/admin/banners", label: "Banners", I: Img }, { href: "/admin/coupons", label: "Coupons", I: Ticket }, { href: "/admin/orders", label: "Orders", I: ShoppingBag }, { href: "/admin/messages", label: "Messages", I: Mail }, { href: "/admin/pages", label: "Pages", I: FileText }, { href: "/admin/faqs", label: "FAQs & Chat", I: HelpCircle }, { href: "/admin/settings", label: "Settings", I: Settings }];
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   if (!isSupabaseConfigured) return <div className="min-h-screen bg-cream"><AdminSetup /></div>;
   const { data: { user } } = await serverClient().auth.getUser();

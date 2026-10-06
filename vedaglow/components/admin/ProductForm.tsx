@@ -4,14 +4,15 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import type { Product, ProductVariant } from "@/types";
 import { CATEGORY_OPTIONS } from "@/lib/shop";
-import { slugify, type ProductInput } from "@/lib/data/mappers";
+import { autoSeo, slugify, type ProductInput } from "@/lib/data/mappers";
 import { deleteProduct, saveProduct } from "@/app/admin/actions";
 import ImageUploader from "./ImageUploader";
 import { btn, btn2, btnDanger, card, inp, lbl } from "./ui";
 
-export const emptyProduct = (): ProductInput => ({ id: "", slug: "", name: "", short_description: "", category: "skin-care", price: 0, images: [], visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: 0, is_active: true });
+export const emptyProduct = (): ProductInput => ({ id: "", slug: "", name: "", short_description: "", category: "skin-care", price: 0, images: [], visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: 0, is_active: true, sort_priority: 0, condition: "New", specifics: [] });
 const TAGS: Product["tags"][number][] = ["new", "best-seller", "featured", "sale"];
 const KINDS = ["bottle", "jar", "tube", "dropper", "pump"] as const;
+const SPEC_IDEAS = ["Skin type", "Hair type", "Volume", "Formulation", "Key ingredient", "Scent", "Free from", "Certification", "Target age", "Package type"];
 const TEXTS: [keyof ProductInput, string][] = [["description", "Description"], ["benefits", "Benefits"], ["ingredients", "Ingredients"], ["how_to_use", "How to use"], ["size_quantity", "Size / quantity note"], ["shipping_info", "Shipping info"], ["return_info", "Return info"]];
 
 export default function ProductForm({ initial, isNew }: { initial: ProductInput; isNew: boolean }) {
@@ -20,6 +21,22 @@ export default function ProductForm({ initial, isNew }: { initial: ProductInput;
   const variants = p.variants ?? [];
   const setVar = (i: number, patch: Partial<ProductVariant>) => set("variants", variants.map((v, k) => k === i ? { ...v, ...patch } : v));
   const addVar = () => set("variants", [...variants, { id: `v_${Date.now().toString(36)}`, sku: "", label: "", price: p.price || 0, stock: 0 }]);
+  const specifics = p.specifics ?? [];
+  const setSpec = (i: number, patch: Partial<{ name: string; value: string }>) => set("specifics", specifics.map((x, k) => k === i ? { ...x, ...patch } : x));
+  const addSpec = (name = "") => set("specifics", [...specifics, { name, value: "" }]);
+  const auto = autoSeo(p); const effT = (p.seo_title ?? "").trim() || auto.title, effD = (p.seo_description ?? "").trim() || auto.description;
+  const fillSeo = () => setP(x => ({ ...x, seo_title: auto.title, seo_description: auto.description, seo_keywords: auto.keywords }));
+  const checks: [boolean, string][] = [
+    [p.name.trim().split(/\s+/).filter(Boolean).length >= 3, "Product name has 3 or more words (e.g. “Onion Hair Oil 100ml”)"],
+    [effT.length >= 30 && effT.length <= 60, "Search title is 30 to 60 characters"],
+    [effD.length >= 120 && effD.length <= 160, "Search description is 120 to 160 characters"],
+    [p.images.length >= 3, "3 or more photos (buyers trust products with several photos)"],
+    [(p.description ?? "").trim().length >= 150, "Description is 150+ characters"],
+    [specifics.filter(x => x.name.trim() && x.value.trim()).length >= 3, "3 or more item specifics (like eBay)"],
+    [Boolean(p.brand?.trim()), "Brand is filled in"],
+    [Boolean(p.gtin?.trim()), "Barcode (GTIN/UPC) added. Needed for Google Shopping"],
+  ];
+  const score = Math.round((checks.filter(c => c[0]).length / checks.length) * 100);
   const save = () => start(async () => {
     setMsg(null);
     if (variants.some(v => !v.label.trim())) { setMsg({ ok: false, t: "Every variant needs a label (e.g. 15ml)." }); return; }
@@ -66,6 +83,32 @@ export default function ProductForm({ initial, isNew }: { initial: ProductInput;
       <section className={card}><h2 className="mb-4 font-display text-2xl font-semibold text-forest">Product details</h2>
         <div className="grid gap-4">{TEXTS.map(([k, label]) => <div key={k}><label className={lbl} htmlFor={k}>{label}</label><textarea id={k} rows={k === "description" ? 4 : 2} className={inp} value={(p[k] as string) ?? ""} onChange={e => set(k, e.target.value as never)} /></div>)}
           <div className="grid gap-4 sm:grid-cols-2"><div><label className={lbl} htmlFor="sf">Suitable for</label><input id="sf" className={inp} value={p.suitable_for ?? ""} onChange={e => set("suitable_for", e.target.value)} /></div><div><label className={lbl} htmlFor="sz">Size</label><input id="sz" className={inp} value={p.size ?? ""} onChange={e => set("size", e.target.value)} /></div></div></div></section>
+
+      <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-display text-2xl font-semibold text-forest">Item specifics &amp; identifiers</h2><p className="text-sm text-ink/60">Like eBay: the more details, the more buyers (and Google) trust the listing. Shown in the “Specifications” tab.</p></div></div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div><label className={lbl} htmlFor="cond">Condition</label><select id="cond" className={inp} value={p.condition ?? "New"} onChange={e => set("condition", e.target.value)}><option>New</option><option>New – open box</option></select></div>
+          <div><label className={lbl} htmlFor="gtin">Barcode (GTIN / UPC / EAN)</label><input id="gtin" className={inp} value={p.gtin ?? ""} onChange={e => set("gtin", e.target.value)} /></div>
+          <div><label className={lbl} htmlFor="mpn">MPN (manufacturer part no.)</label><input id="mpn" className={inp} value={p.mpn ?? ""} onChange={e => set("mpn", e.target.value)} /></div>
+          <div><label className={lbl} htmlFor="coo">Country of origin</label><input id="coo" className={inp} value={p.country_of_origin ?? ""} onChange={e => set("country_of_origin", e.target.value)} /></div>
+          <div><label className={lbl} htmlFor="shelf">Shelf life / expiry</label><input id="shelf" className={inp} value={p.shelf_life ?? ""} onChange={e => set("shelf_life", e.target.value)} placeholder="24 months" /></div>
+          <div><label className={lbl} htmlFor="wt">Weight (grams)</label><input id="wt" type="number" min={0} className={inp} value={p.weight_g ?? ""} onChange={e => set("weight_g", e.target.value ? Number(e.target.value) : undefined)} /></div>
+          <div className="sm:col-span-3"><label className={lbl} htmlFor="dim">Dimensions</label><input id="dim" className={inp} value={p.dimensions ?? ""} onChange={e => set("dimensions", e.target.value)} placeholder="12 × 5 × 5 cm" /></div></div>
+        <div className="mt-5"><span className={lbl}>Custom item specifics</span>
+          {specifics.map((x, i) => <div key={i} className="mb-2 grid gap-2 sm:grid-cols-[1fr_2fr_auto]"><input aria-label="Specific name" className={inp} placeholder="Name (e.g. Skin type)" value={x.name} onChange={e => setSpec(i, { name: e.target.value })} /><input aria-label="Specific value" className={inp} placeholder="Value (e.g. All skin types)" value={x.value} onChange={e => setSpec(i, { value: e.target.value })} /><button type="button" aria-label="Remove" onClick={() => set("specifics", specifics.filter((_, k) => k !== i))} className="p-2 text-red-700"><Trash2 size={18} /></button></div>)}
+          <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={() => addSpec()} className={`${btn2} flex items-center gap-1`}><Plus size={16} />Add specific</button>
+            <span className="text-xs text-ink/50">Quick add:</span>{SPEC_IDEAS.filter(n => !specifics.some(x => x.name === n)).map(n => <button key={n} type="button" onClick={() => addSpec(n)} className="rounded-full border border-forest/20 bg-white px-3 py-1 text-xs text-forest hover:bg-forest-100">{n}</button>)}</div></div></section>
+
+      <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-display text-2xl font-semibold text-forest">Google search (SEO) &amp; ranking</h2><p className="text-sm text-ink/60">Leave search fields empty and they are written for you automatically when you save.</p></div><button type="button" onClick={fillSeo} className={btn2}>Auto-fill search text</button></div>
+        <div className="rounded-xl border border-forest/10 bg-cream p-4"><p className="truncate text-lg text-blue-700">{effT}</p><p className="truncate text-xs text-green-700">your-website › product › {slugify(p.slug || p.name) || "…"}</p><p className="mt-1 text-sm text-ink/70">{effD}</p></div>
+        <div className="mt-4 grid gap-4">
+          <div><label className={lbl} htmlFor="st">Search title <span className="font-normal normal-case">({(p.seo_title ?? "").length}/60)</span></label><input id="st" className={inp} maxLength={90} value={p.seo_title ?? ""} onChange={e => set("seo_title", e.target.value)} placeholder={auto.title} /></div>
+          <div><label className={lbl} htmlFor="sdsc">Search description <span className="font-normal normal-case">({(p.seo_description ?? "").length}/160)</span></label><textarea id="sdsc" rows={2} maxLength={300} className={inp} value={p.seo_description ?? ""} onChange={e => set("seo_description", e.target.value)} placeholder={auto.description} /></div>
+          <div><label className={lbl} htmlFor="skw">Keywords (separate with commas)</label><input id="skw" className={inp} value={p.seo_keywords ?? ""} onChange={e => set("seo_keywords", e.target.value)} placeholder={auto.keywords} /></div></div>
+        <div className="mt-5 grid gap-5 md:grid-cols-2">
+          <div><div className="mb-2 flex items-center gap-3"><div className="h-2.5 flex-1 overflow-hidden rounded-full bg-forest/10"><div className={`h-full ${score >= 75 ? "bg-green-600" : score >= 50 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${score}%` }} /></div><b className="text-forest">{score}%</b></div>
+            <ul className="space-y-1 text-sm">{checks.map(([ok, t]) => <li key={t} className={ok ? "text-green-700" : "text-ink/60"}>{ok ? "✓" : "○"} {t}</li>)}</ul></div>
+          <div><label className={lbl} htmlFor="rank">Show higher in the shop</label><select id="rank" className={inp} value={p.sort_priority ?? 0} onChange={e => set("sort_priority", Number(e.target.value))}><option value={0}>Normal (newest first)</option><option value={10}>Boosted (above normal products)</option><option value={100}>Top (first on shop &amp; homepage lists)</option></select>
+            <p className="mt-2 text-xs text-ink/50">Use “Top” for the products you want to sell fastest. You can also tick the “Best seller”, “New” or “Sale” badges above so it appears in those homepage sections.</p></div></div></section>
 
       <details className={card}><summary className="cursor-pointer font-semibold text-forest">Placeholder look (only used when there are no photos)</summary>
         <div className="mt-3 grid gap-4 sm:grid-cols-3"><div><label className={lbl}>Shape</label><select className={inp} value={p.visual.kind} onChange={e => set("visual", { ...p.visual, kind: e.target.value as Product["visual"]["kind"] })}>{KINDS.map(k => <option key={k}>{k}</option>)}</select></div>
