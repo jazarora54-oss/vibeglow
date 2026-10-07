@@ -3,8 +3,12 @@ import type { CartItem, CheckoutData, Coupon, OrderItem, TemporaryOrder } from "
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { publicClient } from "@/lib/supabase/public";
 import { serviceClient } from "@/lib/supabase/server";
-import { findCoupon, calculateSummary, getShippingMethod } from "@/lib/cart/cartCalculations";
-import { DELIVERY_DAYS } from "@/lib/cart/config";
+import { findCoupon, calculateSummary, calculateSubtotal } from "@/lib/cart/cartCalculations";
+import { deliveryRange, lineFromProduct, toShippingMethod, type ShipLine } from "@/lib/shipping/rules";
+import { shipConfigOf, shipFromOf } from "@/lib/shipping/settings";
+import { detailFor, quoteShipping } from "@/lib/shipping/quote";
+import { getSiteSettings } from "@/lib/data/site";
+import { rowToProduct } from "@/lib/data/mappers";
 import { getProductBySlug } from "@/lib/data/products";
 import { answerQuestion } from "@/lib/chatbot";
 import { validateAddress, validateContact } from "@/lib/checkout/validation";
@@ -21,7 +25,6 @@ export async function lookupCoupon(code: string): Promise<Coupon | null> {
 
 export type SubmitResult = { status: "ok"; order: TemporaryOrder } | { status: "error"; message: string } | { status: "local" };
 type Line = { product_id: string; variant_id?: string; quantity: number };
-const fmtDate = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const newId = () => {
   const d = new Date(); const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
   const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = ""; for (let i = 0; i < 5; i++) s += abc[Math.floor(Math.random() * abc.length)];
@@ -32,7 +35,7 @@ const newId = () => {
  * Creates the order in the database. Prices, stock and coupon are ALL re-checked here from the database;
  * whatever the browser sent for prices is ignored. Returns {status:"local"} when Supabase / the service key is not set up.
  */
-export async function submitOrder(input: { items: Line[]; checkout: CheckoutData; coupon_code?: string }): Promise<SubmitResult> {
+export async function submitOrder(input: { items: Line[]; checkout: CheckoutData; coupon_code?: string; expected_shipping?: number }): Promise<SubmitResult> {
   const db = serviceClient();
   if (!isSupabaseConfigured || !db) return { status: "local" };
   const lines = (input?.items ?? []).filter(l => l && typeof l.product_id === "string" && Number.isInteger(l.quantity) && l.quantity >= 1 && l.quantity <= 99).slice(0, 50);
@@ -44,7 +47,7 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
   const { data: rows, error } = await db.from("products").select("*").in("id", [...new Set(lines.map(l => l.product_id))]).eq("is_active", true);
   if (error || !rows) return { status: "error", message: "Could not verify your items. Please try again." };
   const byId = new Map(rows.map((r: any) => [r.id as string, r]));
-  const items: OrderItem[] = []; const cart: CartItem[] = []; const stockUpdates = new Map<string, any>();
+  const items: OrderItem[] = []; const cart: CartItem[] = []; const shipLines: ShipLine[] = []; const stockUpdates = new Map<string, any>();
   for (const l of lines) {
     const p: any = byId.get(l.product_id);
     if (!p) return { status: "error", message: "An item in your cart is no longer available. Please remove it and try again." };
@@ -58,15 +61,23 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
     const u = stockUpdates.get(p.id) ?? { row: p, used: {} as Record<string, number> }; u.used[l.variant_id ?? "-"] = already + l.quantity; stockUpdates.set(p.id, u);
     const unit = Math.round(Number(v ? v.price : p.price) * 100) / 100;
     const base = { product_id: p.id, variant_id: v?.id, name: p.name, slug: p.slug, variant_label: v?.label, sku: v?.sku ?? p.sku ?? undefined, image: p.images?.[0], visual: p.visual, quantity: l.quantity, unit_price: unit };
-    items.push({ ...base, line_total: Math.round(unit * l.quantity * 100) / 100 }); cart.push(base);
+    const sl = lineFromProduct(rowToProduct(p), l.quantity); shipLines.push(sl);
+    items.push({ ...base, line_total: Math.round(unit * l.quantity * 100) / 100, weight_g: sl.weight_g ?? undefined, pkg: sl.pkg ?? undefined, ship_mode: sl.mode }); cart.push(base);
   }
   const coupon = input.coupon_code ? await lookupCoupon(input.coupon_code) : null;
-  const method = getShippingMethod(co.shipping_method_id);
-  const summary = calculateSummary(cart, coupon, method.id);
-  const a = new Date(), b = new Date(); a.setDate(a.getDate() + DELIVERY_DAYS.min); b.setDate(b.getDate() + DELIVERY_DAYS.max);
+  // Shipping is worked out again here, on the server, from the database. The browser only says which option the customer picked.
+  const settings = await getSiteSettings();
+  const q = await quoteShipping({ lines: shipLines, subtotal: calculateSubtotal(cart), to: co.shipping_address, contact: co.contact, cfg: shipConfigOf(settings), from: shipFromOf(settings) });
+  if (!q.ok || !q.options.length) return { status: "error", message: q.message ?? "Please choose a shipping option." };
+  const opt = q.options.find(o => o.id === co.shipping_method_id);
+  if (!opt) return { status: "error", message: "The shipping options changed. Please choose your shipping again." };
+  if (typeof input.expected_shipping === "number" && Math.abs(input.expected_shipping - opt.price) > 0.009) return { status: "error", message: `The shipping price is now $${opt.price.toFixed(2)}. Please review your total and place the order again.` };
+  const summary = calculateSummary(cart, coupon, { amount: opt.price });
+  const method = toShippingMethod(opt);
+  const detail = detailFor(q, opt); const eta = deliveryRange(detail.handling_days, opt.days_min, opt.days_max);
 
   for (let attempt = 0; attempt < 4; attempt++) {
-    const order: TemporaryOrder = { id: newId(), created_at: new Date().toISOString(), status: "pending-payment", items, summary, checkout: { ...co, payment_method: String(co.payment_method ?? "").slice(0, 60) }, shipping_method: method, estimated_delivery: `${fmtDate(a)} – ${fmtDate(b)} (${method.eta})` };
+    const order: TemporaryOrder = { id: newId(), created_at: new Date().toISOString(), status: "pending-payment", items, summary, checkout: { ...co, payment_method: String(co.payment_method ?? "").slice(0, 60) }, shipping_method: method, estimated_delivery: eta, shipping_detail: detail };
     const { error: e } = await db.from("orders").insert({ id: order.id, status: "pending", payment_status: "unpaid", email: co.contact.email.trim(), phone: co.contact.phone.trim(), customer_name: `${co.shipping_address.first_name} ${co.shipping_address.last_name}`.trim(), total: summary.total, data: order });
     if (e?.code === "23505") continue; // id collision, try a new one
     if (e) { console.error("order insert failed:", e.message); return { status: "error", message: "Could not save your order. Please try again." }; }
@@ -112,7 +123,7 @@ export async function submitContact(input: { name: string; email: string; subjec
 }
 
 export type TrackResult =
-  | { ok: true; order: { id: string; status: string; payment_status: string; tracking_info?: string; estimated_delivery?: string; total: number; items: { name: string; variant_label?: string; quantity: number }[] } }
+  | { ok: true; order: { id: string; status: string; payment_status: string; tracking_info?: string; tracking_url?: string; carrier?: string; estimated_delivery?: string; total: number; items: { name: string; variant_label?: string; quantity: number }[] } }
   | { ok: false; message: string };
 /** Customer order tracking. Needs BOTH the order number and the matching email, so strangers cannot browse orders. */
 export async function trackOrder(orderId: string, email: string): Promise<TrackResult> {
@@ -121,8 +132,8 @@ export async function trackOrder(orderId: string, email: string): Promise<TrackR
   if (!id || !em) return nope;
   const db = serviceClient();
   if (!isSupabaseConfigured || !db) return { ok: false, message: "Order tracking is not available yet." };
-  const { data } = await db.from("orders").select("id,status,payment_status,tracking_info,total,email,data").eq("id", id).maybeSingle();
+  const { data } = await db.from("orders").select("*").eq("id", id).maybeSingle();
   if (!data || String(data.email).trim().toLowerCase() !== em) return nope;
   const o = data.data as TemporaryOrder;
-  return { ok: true, order: { id: data.id, status: data.status, payment_status: data.payment_status, tracking_info: data.tracking_info ?? undefined, estimated_delivery: o.estimated_delivery, total: Number(data.total), items: (o.items ?? []).map(i => ({ name: i.name, variant_label: i.variant_label, quantity: i.quantity })) } };
+  return { ok: true, order: { id: data.id, status: data.status, payment_status: data.payment_status, tracking_info: data.tracking_info ?? undefined, tracking_url: data.tracking_url ?? undefined, carrier: data.carrier ?? undefined, estimated_delivery: o.estimated_delivery, total: Number(data.total), items: (o.items ?? []).map(i => ({ name: i.name, variant_label: i.variant_label, quantity: i.quantity })) } };
 }

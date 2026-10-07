@@ -8,7 +8,9 @@ export default function OrderSummary({ summary, context = "cart", shippingNote =
     <dl className="space-y-3">
       <Row label="Subtotal" value={money(summary.subtotal)} />
       {summary.discount > 0 && <Row label={`Discount${summary.coupon_code ? ` (${summary.coupon_code})` : ""}`} value={`-${money(summary.discount)}`} tone="font-semibold text-forest-500" />}
-      <Row label={shippingNote ? "Shipping (estimated)" : "Shipping"} value={summary.shipping === 0 ? "FREE" : money(summary.shipping)} tone={summary.shipping === 0 ? "font-semibold text-forest-500" : ""} />
+      {summary.shipping_pending
+        ? <Row label="Shipping" value={context === "checkout" ? "Enter address to calculate" : "Calculated at checkout"} tone="text-ink/60" />
+        : <Row label={shippingNote && context === "cart" ? "Shipping (estimated)" : "Shipping"} value={summary.shipping === 0 ? "FREE" : money(summary.shipping)} tone={summary.shipping === 0 ? "font-semibold text-forest-500" : ""} />}
       {TAX_RATE > 0 ? <Row label="Tax (estimated)" value={money(summary.tax)} /> : context === "cart" && <Row label="Tax" value="Calculated at checkout" tone="text-ink/60" />}
       <div className="border-t border-forest/15 pt-3"><Row label="TOTAL" value={money(summary.total)} strong /></div>
     </dl>

@@ -1,5 +1,6 @@
-import type { CartItem, Coupon, OrderSummary, ShippingMethod } from "@/types";
-import { DEMO_COUPONS, FREE_SHIPPING_THRESHOLD, SHIPPING_METHODS, TAX_RATE } from "./config";
+import type { CartItem, Coupon, OrderSummary } from "@/types";
+import { DEMO_COUPONS, TAX_RATE } from "./config";
+import { estimateShipping, lineFromCart, type ShipConfig } from "@/lib/shipping/rules";
 const r2 = (n: number) => Math.round(n * 100) / 100;
 export const calculateItemCount = (items: CartItem[]) => items.reduce((s, i) => s + i.quantity, 0);
 export const calculateSubtotal = (items: CartItem[]) => r2(items.reduce((s, i) => s + i.unit_price * i.quantity, 0));
@@ -10,21 +11,18 @@ export function calculateDiscount(subtotal: number, coupon?: Coupon | null) {
   const d = coupon.percent_off ? subtotal * coupon.percent_off / 100 : coupon.amount_off ?? 0;
   return r2(Math.min(Math.max(d, 0), subtotal));
 }
-export const getShippingMethod = (id?: string): ShippingMethod => SHIPPING_METHODS.find(m => m.id === id) ?? SHIPPING_METHODS[0];
-export function calculateShipping(subtotal: number, method?: ShippingMethod) {
-  const m = method ?? SHIPPING_METHODS[0];
-  if (subtotal <= 0) return 0;
-  return m.free_over !== undefined && subtotal >= m.free_over ? 0 : m.price;
-}
 export const calculateTax = (taxable: number) => r2(Math.max(taxable, 0) * TAX_RATE);
 export const calculateGrandTotal = (subtotal: number, discount: number, shipping: number, tax: number) => r2(Math.max(subtotal - discount, 0) + shipping + tax);
-export function calculateFreeShippingProgress(subtotal: number) {
-  const remaining = r2(Math.max(FREE_SHIPPING_THRESHOLD - subtotal, 0));
-  return { remaining, qualifies: subtotal >= FREE_SHIPPING_THRESHOLD, percent: Math.min(100, Math.round(subtotal / FREE_SHIPPING_THRESHOLD * 100)) };
+/** Progress toward the store-wide "free shipping over $X" rule (admin -> Settings). enabled=false when it is switched off. */
+export function calculateFreeShippingProgress(subtotal: number, freeOver: number) {
+  if (!(freeOver > 0)) return { enabled: false, remaining: 0, qualifies: false, percent: 0 };
+  return { enabled: true, remaining: r2(Math.max(freeOver - subtotal, 0)), qualifies: subtotal >= freeOver, percent: Math.min(100, Math.round(subtotal / freeOver * 100)) };
 }
-/** The ONE place totals are computed: Cart, Mini Cart, Checkout and Order Confirmation all use it. */
-export function calculateSummary(items: CartItem[], coupon?: Coupon | null, shippingId?: string): OrderSummary {
+/** The ONE place totals are computed: Cart, Mini Cart, Checkout and Order Confirmation all use it. `shipping` is already decided (estimate in the cart, chosen option at checkout). */
+export function calculateSummary(items: CartItem[], coupon?: Coupon | null, shipping: { amount: number; pending?: boolean } = { amount: 0 }): OrderSummary {
   const subtotal = calculateSubtotal(items); const discount = calculateDiscount(subtotal, coupon);
-  const shipping = calculateShipping(subtotal, getShippingMethod(shippingId)); const tax = calculateTax(subtotal - discount);
-  return { item_count: calculateItemCount(items), subtotal, discount, shipping, tax, total: calculateGrandTotal(subtotal, discount, shipping, tax), coupon_code: discount > 0 ? coupon?.code : undefined };
+  const ship = r2(Math.max(shipping.amount, 0)); const tax = calculateTax(subtotal - discount);
+  return { item_count: calculateItemCount(items), subtotal, discount, shipping: ship, tax, total: calculateGrandTotal(subtotal, discount, ship, tax), coupon_code: discount > 0 ? coupon?.code : undefined, ...(shipping.pending ? { shipping_pending: true } : {}) };
 }
+/** Cart / mini cart: summary using the best shipping estimate we have before an address is known. */
+export const cartSummary = (items: CartItem[], coupon: Coupon | null | undefined, cfg: ShipConfig) => calculateSummary(items, coupon, estimateShipping(items.map(lineFromCart), calculateSubtotal(items), cfg));

@@ -18,7 +18,7 @@ export default function TrackOrderForm() {
     {o && <div className="mt-6 space-y-4 rounded-2xl border border-forest/10 bg-white p-5 shadow-card">
       <div className="flex flex-wrap items-center justify-between gap-2"><b className="text-forest">{o.id}</b><span className="rounded-full bg-cream-dark px-3 py-1 text-sm font-semibold text-forest">{LABEL[o.status] ?? o.status}</span></div>
       {o.status !== "cancelled" && <ol className="grid grid-cols-4 gap-2 text-center text-xs">{STEPS.map((s, i) => <li key={s}><div className={`mx-auto mb-1 h-2 rounded-full ${i <= at ? "bg-forest" : "bg-forest/15"}`} /><span className={i <= at ? "font-semibold text-forest" : "text-ink/50"}>{LABEL[s]}</span></li>)}</ol>}
-      {o.tracking_info && <p className="rounded-lg bg-cream p-3 text-sm"><b>Tracking:</b> {o.tracking_info}</p>}
+      {o.tracking_info && <p className="rounded-lg bg-cream p-3 text-sm"><b>Tracking:</b> {o.tracking_url && /^https?:\/\//.test(o.tracking_url) ? <a href={o.tracking_url} target="_blank" rel="noopener noreferrer" className="font-semibold text-forest underline">{o.tracking_info}</a> : o.tracking_info}</p>}
       {o.estimated_delivery && <p className="text-sm text-ink/70">Estimated delivery: {o.estimated_delivery}</p>}
       <ul className="divide-y divide-forest/10 text-sm">{o.items.map((i, k) => <li key={k} className="flex justify-between py-2"><span>{i.name}{i.variant_label ? ` · ${i.variant_label}` : ""}</span><span>× {i.quantity}</span></li>)}</ul>
       <p className="text-right text-sm font-semibold">Total: ${o.total.toFixed(2)}</p>

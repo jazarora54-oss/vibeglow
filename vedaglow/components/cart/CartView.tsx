@@ -3,15 +3,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/components/CartProvider";
-import { calculateSummary } from "@/lib/cart/cartCalculations";
+import { cartSummary } from "@/lib/cart/cartCalculations";
 import { cartIssues, getLiveStock } from "@/lib/cart/validate";
 import CartList from "./CartList"; import CouponBox from "./CouponBox"; import EmptyCart from "./EmptyCart"; import OrderSummary from "./OrderSummary"; import ShippingProgress from "./ShippingProgress";
 export default function CartView() {
-  const { items, ready, coupon, count, syncStock } = useCart(); const router = useRouter(); const [msg, setMsg] = useState("");
+  const { items, ready, coupon, count, syncStock, shipCfg } = useCart(); const router = useRouter(); const [msg, setMsg] = useState("");
   useEffect(() => { if (ready && items.length) getLiveStock(items).then(syncStock); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [ready, items.length]);
   if (!ready) return <div className="mx-auto max-w-6xl px-4 py-16 text-center text-ink/50" aria-busy="true">Loading your cart…</div>;
   if (!items.length) return <div className="px-4 py-12 sm:py-16"><EmptyCart /></div>;
-  const summary = calculateSummary(items, coupon); const issues = cartIssues(items);
+  const summary = cartSummary(items, coupon, shipCfg); const issues = cartIssues(items);
   const proceed = async () => {
     const live = await getLiveStock(items); syncStock(live);
     const fresh = items.map(i => ({ ...i, max_stock: live[`${i.product_id}:${i.variant_id ?? "-"}`] ?? i.max_stock }));
@@ -28,7 +28,7 @@ export default function CartView() {
           <OrderSummary summary={summary} /><div className="mt-5 border-t border-forest/10 pt-5"><CouponBox /></div>
           {(msg || issues.length > 0) && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">⚠ {msg || issues[0].message}</p>}
           <button type="button" onClick={proceed} disabled={issues.length > 0} className="mt-5 w-full rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-white hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">PROCEED TO CHECKOUT</button>
-          <p className="mt-3 text-center text-xs text-ink/50">Shipping is an estimate. Final totals are confirmed at checkout.</p>
+          <p className="mt-3 text-center text-xs text-ink/50">{summary.shipping_pending ? "Shipping for some items is calculated from your address at checkout." : "Final totals are confirmed at checkout."}</p>
         </aside>
       </div>
     </div>

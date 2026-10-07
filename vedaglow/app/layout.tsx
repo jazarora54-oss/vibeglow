@@ -10,11 +10,14 @@ import MiniCart from "@/components/cart/MiniCart";
 import Toast from "@/components/cart/Toast";
 import Shell from "@/components/layout/Shell";
 import AIChatButton from "@/components/chat/AIChatButton";
+import { getSiteSettings } from "@/lib/data/site";
+import { shipConfigOf } from "@/lib/shipping/settings";
 const display = Cormorant_Garamond({ subsets: ["latin"], weight: ["500", "600", "700"], style: ["normal", "italic"], variable: "--font-display" });
 const sans = Jost({ subsets: ["latin"], variable: "--font-sans" });
 export const metadata: Metadata = { metadataBase: new URL(siteUrl()), openGraph: { siteName: "VEDAGLOW", type: "website" }, title: "VEDAGLOW – Ancient Wisdom. Modern Glow.", description: "Pure, natural & effective beauty and wellness products for your daily care." };
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const shipCfg = shipConfigOf(await getSiteSettings());
   return (<html lang="en" className={`${display.variable} ${sans.variable}`}><body>
-    <CartProvider><Shell top={<><AnnouncementBar /><Header /></>} bottom={<><Footer /><AIChatButton /><MiniCart /><Toast /></>}>{children}</Shell></CartProvider>
+    <CartProvider shipCfg={shipCfg}><Shell top={<><AnnouncementBar /><Header /></>} bottom={<><Footer /><AIChatButton /><MiniCart /><Toast /></>}>{children}</Shell></CartProvider>
   </body></html>);
 }

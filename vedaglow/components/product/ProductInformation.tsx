@@ -3,9 +3,10 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Product } from "@/types";
+import { weightText } from "@/lib/shipping/rules";
 type Rows = [string, string][];
 const specRows = (p: Product): Rows => ([["Brand", p.brand], ["Condition", p.condition], ["Type", p.product_type], ["Size", p.size], ["Suitable for", p.suitable_for], ["Country of origin", p.country_of_origin], ["Shelf life", p.shelf_life],
-  ["Weight", p.weight_g ? `${p.weight_g} g` : undefined], ["Dimensions", p.dimensions], ["SKU", p.sku], ["GTIN / UPC", p.gtin], ["MPN", p.mpn], ...(p.specifics ?? []).map(x => [x.name, x.value] as [string, string | undefined])] as [string, string | undefined][]).filter(r => r[1]) as Rows;
+  ["Weight", weightText(p.weight_g) || undefined], ["Dimensions", p.dimensions], ["Shipping", p.shipping_mode === "free" ? "Free shipping" : undefined], ["SKU", p.sku], ["GTIN / UPC", p.gtin], ["MPN", p.mpn], ...(p.specifics ?? []).map(x => [x.name, x.value] as [string, string | undefined])] as [string, string | undefined][]).filter(r => r[1]) as Rows;
 const body = (t: string | Rows): ReactNode => typeof t === "string" ? t : <dl className="grid max-w-2xl grid-cols-[minmax(7rem,1fr)_2fr] gap-x-6 gap-y-2 text-base">{t.map(([k, v]) => <div key={k} className="contents"><dt className="font-semibold text-forest">{k}</dt><dd className="text-ink/80">{v}</dd></div>)}</dl>;
 /** Desktop: tabs. Mobile: accordion. A section only renders when its data exists. */
 export default function ProductInformation({ product: p }: { product: Product }) {

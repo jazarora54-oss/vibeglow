@@ -8,10 +8,12 @@ import Stars from "@/components/ui/Stars";
 import QuantitySelector from "./QuantitySelector";
 import StockStatus from "./StockStatus";
 import { useSelection } from "./ProductSelection";
+import { DEFAULT_HANDLING_DAYS, shippingBadge } from "@/lib/shipping/rules";
 export default function PurchasePanel() {
   const { product, variant: v, price, compare, pct, stock, sku, out, qty, setQty, sizes, colors, choose, added, add, buyNow } = useSelection();
   const [notify, setNotify] = useState<"idle" | "form" | "done">("idle");
-  const { toggleWishlist, wishlist } = useCart(); const liked = wishlist.includes(product.id);
+  const { toggleWishlist, wishlist, shipCfg } = useCart(); const liked = wishlist.includes(product.id);
+  const ship = shippingBadge(product, shipCfg); const hd = product.handling_days ?? DEFAULT_HANDLING_DAYS;
   const vs = product.variants ?? [];
   const opt = (on: boolean, empty: boolean) => `rounded-lg border-2 px-4 py-2 text-sm font-medium transition-colors ${on ? "border-forest bg-forest-100 text-forest" : "border-forest/15 bg-white hover:border-forest/50"} ${empty ? "text-ink/40 line-through" : ""}`;
   const group = (kind: "size" | "color", label: string, vals: string[]) => (
@@ -33,6 +35,10 @@ export default function PurchasePanel() {
       {colors.length > 0 && group("color", "Color", colors)}
       {sku && <p className="mt-4 text-xs text-ink/50">SKU: {sku}</p>}
       <div className="mt-6 flex flex-wrap items-center gap-5"><QuantitySelector value={qty} max={stock} onChange={setQty} /><StockStatus stock={stock} /></div>
+      <div className="mt-5 rounded-xl border border-forest/10 bg-white p-4 text-sm sm:max-w-md" aria-label="Shipping">
+        <p className={`font-semibold ${ship.kind === "free" ? "text-forest-500" : "text-forest"}`}>🚚 {ship.text}{ship.kind === "calc" && <span className="font-normal text-ink/60"> (USPS, UPS or FedEx)</span>}</p>
+        <p className="mt-1 text-xs text-ink/60">Ships within {hd === 0 ? "the same day" : `${hd} business day${hd === 1 ? "" : "s"}`}. Delivery estimate shown at checkout.</p>
+        {ship.kind !== "free" && shipCfg.freeOver > 0 && <p className="mt-1 text-xs font-medium text-gold-dark">Free shipping on orders over {money(shipCfg.freeOver)}.</p>}</div>
       <div id="purchase-actions" className="mt-6 grid gap-3 sm:max-w-md">
         <button type="button" onClick={add} disabled={out} className="rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-white hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">{out ? "OUT OF STOCK" : "ADD TO CART"}</button>
         <button type="button" onClick={buyNow} disabled={out} className="rounded-lg border-2 border-gold bg-white py-4 text-sm font-semibold tracking-wide text-gold-dark hover:bg-gold hover:text-white disabled:cursor-not-allowed disabled:border-ink/20 disabled:text-ink/30 disabled:hover:bg-white">BUY IT NOW</button>

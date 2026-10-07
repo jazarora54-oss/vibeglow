@@ -1,6 +1,8 @@
 import type { Address, CustomerInformation } from "@/types";
+import { stateCode } from "@/lib/shipping/rules";
 export type Errors = Record<string, string>;
-export const COUNTRIES = ["United States", "Canada", "United Kingdom", "India", "Australia"];
+/** Shipping labels and rates are set up for the United States only (international needs customs forms). */
+export const COUNTRIES = ["United States"];
 export const emptyAddress = (): Address => ({ first_name: "", last_name: "", address1: "", address2: "", city: "", state: "", zip: "", country: "United States" });
 export function validateContact(c: CustomerInformation): Errors {
   const e: Errors = {};
@@ -15,7 +17,7 @@ export function validateAddress(a: Address): Errors {
   if (!a.last_name.trim()) e.last_name = "Please enter your last name.";
   if (!a.address1.trim()) e.address1 = "Please enter your street address.";
   if (!a.city.trim()) e.city = "Please enter your city.";
-  if (!a.state.trim()) e.state = "Please enter your state.";
+  if (!a.state.trim()) e.state = "Please select your state."; else if (a.country === "United States" && !stateCode(a.state)) e.state = "Please select a valid US state.";
   if (!a.zip.trim()) e.zip = "Please enter your ZIP code."; else if (a.country === "United States" && !/^\d{5}(-\d{4})?$/.test(a.zip.trim())) e.zip = "Please enter a valid 5-digit ZIP code.";
   if (!a.country.trim()) e.country = "Please select your country.";
   return e;

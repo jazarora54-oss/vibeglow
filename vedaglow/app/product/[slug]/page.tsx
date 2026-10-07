@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { siteUrl } from "@/lib/site";
+import { getSiteSettings } from "@/lib/data/site";
+import { shipConfigOf } from "@/lib/shipping/settings";
+import { shippingBadge } from "@/lib/shipping/rules";
 import { notFound } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { getProductBySlug, getRelatedProducts } from "@/lib/data/products";
@@ -29,11 +32,14 @@ export default async function ProductPage({ params }: Props) {
   if (!product) notFound();
   const cat = CATEGORY_OPTIONS.find(c => c.slug === product.category);
   const [related, reviews] = await Promise.all([getRelatedProducts(product, 4), getProductReviews(product.id)]);
+  const cfg = shipConfigOf(await getSiteSettings()); const sb = shippingBadge(product, cfg);
+  const shipRate = sb.kind === "free" ? 0 : sb.kind === "paid" ? (product.shipping_flat_price ?? cfg.defaultFlat) : undefined; // calculated rates depend on the address, so none is published
   const crumb = "flex items-center gap-1";
   // Structured data so Google can show price, stock and photos in search results.
   const ld = { "@context": "https://schema.org", "@type": "Product", name: product.name, description: product.seo_description || product.short_description, sku: product.sku, mpn: product.mpn, gtin: product.gtin, category: cat?.name,
     brand: product.brand ? { "@type": "Brand", name: product.brand } : undefined, image: product.images.length ? product.images : undefined,
-    offers: { "@type": "Offer", url: `${siteUrl()}/product/${product.slug}`, priceCurrency: "USD", price: product.price.toFixed(2), itemCondition: "https://schema.org/NewCondition", availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock" } };
+    offers: { "@type": "Offer", url: `${siteUrl()}/product/${product.slug}`, priceCurrency: "USD", price: product.price.toFixed(2), itemCondition: "https://schema.org/NewCondition", availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      shippingDetails: shipRate === undefined ? undefined : { "@type": "OfferShippingDetails", shippingRate: { "@type": "MonetaryAmount", value: shipRate.toFixed(2), currency: "USD" }, shippingDestination: { "@type": "DefinedRegion", addressCountry: "US" } } } };
   return (
     <ProductSelectionProvider product={product}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />

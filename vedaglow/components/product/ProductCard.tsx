@@ -6,9 +6,10 @@ import { discountPct, money } from "@/lib/format";
 import { useCart } from "@/components/CartProvider";
 import Stars from "@/components/ui/Stars";
 import ProductImage from "./ProductImage";
+import { shippingBadge } from "@/lib/shipping/rules";
 export default function ProductCard({ product, layout = "grid" }: { product: Product; layout?: "grid" | "list" }) {
   const list = layout === "list";
-  const { addToCart, toggleWishlist, wishlist } = useCart();
+  const { addToCart, toggleWishlist, wishlist, shipCfg } = useCart(); const ship = shippingBadge(product, shipCfg);
   const pct = discountPct(product); const liked = wishlist.includes(product.id);
   return (
     <article className={`group flex ${list ? "flex-row gap-4 sm:gap-6" : "flex-col"} rounded-2xl border border-forest/10 bg-white p-3 shadow-card transition-shadow hover:shadow-lift sm:p-4`}>
@@ -28,6 +29,7 @@ export default function ProductCard({ product, layout = "grid" }: { product: Pro
         <span className="text-lg font-bold text-forest">{money(product.price)}</span>
         {pct > 0 && <span className="text-xs text-ink/50 line-through">{money(product.compare_at_price!)}</span>}
       </div>
+      <p className={`mt-1 text-xs ${ship.kind === "free" ? "font-semibold text-forest-500" : "text-ink/60"}`}>{ship.kind === "free" ? "🚚 " : ""}{ship.text}</p>
       <button onClick={() => addToCart(product)} disabled={product.stock <= 0} className="mt-3 w-full disabled:cursor-not-allowed disabled:bg-ink/30 sm:disabled:hover:bg-ink/30 rounded-md bg-forest py-2.5 text-xs font-semibold tracking-wide text-white transition-colors hover:bg-forest-500">{product.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
       </div>
     </article>

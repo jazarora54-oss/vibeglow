@@ -1,6 +1,8 @@
 /** Built-in DRAFT content. Everything here can be edited in /admin (Pages, FAQs, Settings). Review the policies before launch; they are templates, not legal advice. */
-export interface SiteSettings { store_name: string; tagline: string; email: string; phone: string; whatsapp: string; address: string; hours: string; instagram: string; facebook: string; tiktok: string; youtube: string }
-export const DEFAULT_SETTINGS: SiteSettings = { store_name: "VEDAGLOW", tagline: "Ancient Wisdom. Modern Glow.", email: "", phone: "", whatsapp: "", address: "", hours: "", instagram: "", facebook: "", tiktok: "", youtube: "" };
+export interface SiteSettings { store_name: string; tagline: string; email: string; phone: string; whatsapp: string; address: string; hours: string; instagram: string; facebook: string; tiktok: string; youtube: string;
+  // Shipping (admin -> Settings -> Shipping). free_shipping_over: 0 = switched off.
+  free_shipping_over: number; default_flat_rate: number; ship_name: string; ship_company: string; ship_street1: string; ship_street2: string; ship_city: string; ship_state: string; ship_zip: string; ship_phone: string }
+export const DEFAULT_SETTINGS: SiteSettings = { store_name: "VEDAGLOW", tagline: "Ancient Wisdom. Modern Glow.", email: "", phone: "", whatsapp: "", address: "", hours: "", instagram: "", facebook: "", tiktok: "", youtube: "", free_shipping_over: 49, default_flat_rate: 5.99, ship_name: "", ship_company: "", ship_street1: "", ship_street2: "", ship_city: "", ship_state: "", ship_zip: "", ship_phone: "" };
 
 export const PAGE_SLUGS = ["about", "contact", "shipping", "returns", "refunds", "privacy", "terms", "faq"] as const;
 export type PageSlug = (typeof PAGE_SLUGS)[number];
@@ -23,15 +25,19 @@ Have a question? [Contact us](/contact).` },
   contact: { title: "Contact Us", body: `We would love to hear from you. Send us a message using the form and we will get back to you as soon as we can.
 
 For help with an existing order, include your order number. You can also check progress any time on the [Track Order](/track-order) page.` },
-  shipping: { title: "Shipping Policy", body: `## Delivery times
-Standard shipping usually arrives in **5 to 8 business days** after your order is processed. You will see an estimated delivery date at checkout.
+  shipping: { title: "Shipping Policy", body: `## Where we ship
+We currently ship within the **United States** with USPS, UPS and FedEx.
 
 ## Shipping cost
-- Standard shipping is **$5.99**.
-- Orders over **$49** ship **free**.
+- Many products show **Free shipping** on the product page.
+- Other products show a shipping charge, or "calculated at checkout" (the real carrier price for your address).
+- Your exact shipping cost and delivery estimate are shown at checkout **before you pay**.
 
-## Processing
-Orders are prepared as quickly as possible. You can follow your order status on the [Track Order](/track-order) page.
+## Processing time
+Orders are packed and handed to the carrier within the handling time shown on the product (usually 1 to 3 business days). Delivery time starts after that.
+
+## Tracking
+When your order ships you will get a tracking number. You can follow it any time on the [Track Order](/track-order) page.
 
 ## Problems with delivery
 If your parcel is late, damaged or missing, please [contact us](/contact) with your order number and we will help.` },
@@ -96,8 +102,8 @@ Questions? [Contact us](/contact).` },
 
 export interface Faq { id?: string; question: string; answer: string; keywords: string; sort_order?: number; is_active?: boolean }
 export const DEFAULT_FAQS: Faq[] = [
-  { question: "How long does shipping take?", answer: "Standard shipping usually takes 5 to 8 business days. You will see an estimated delivery date at checkout.", keywords: "shipping delivery long days arrive time ship when" },
-  { question: "Do you offer free shipping?", answer: "Yes! Orders over $49 ship free. Standard shipping on smaller orders is $5.99.", keywords: "free shipping cost price delivery charge $49" },
+  { question: "How long does shipping take?", answer: "Orders ship within 1 to 3 business days, then the carrier (USPS, UPS or FedEx) usually delivers in 2 to 7 business days. You will see the estimated delivery date at checkout before you pay.", keywords: "shipping delivery long days arrive time ship when" },
+  { question: "Do you offer free shipping?", answer: "Yes. Many products ship free and are marked \"Free shipping\" on the product page. For other products the shipping cost is shown on the product page or at checkout before you pay.", keywords: "free shipping cost price delivery charge how much" },
   { question: "How can I track my order?", answer: "Open the Track Order page (/track-order) and enter your order number and the email you used at checkout.", keywords: "track tracking order status where parcel package" },
   { question: "What is your return policy?", answer: "You can contact us within 7 days of delivery to return unopened, unused products. Damaged or wrong items are always replaced or refunded. Details: /returns", keywords: "return returns refund exchange money back" },
   { question: "How do I use a coupon code?", answer: "Enter your code in the cart under Order Summary and press Apply. New customers can use WELCOME10 for 10% off their first order.", keywords: "coupon code discount promo offer welcome10 voucher" },
