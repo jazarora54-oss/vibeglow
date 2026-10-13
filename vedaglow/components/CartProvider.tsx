@@ -2,8 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { CartItem, Coupon, Product, ProductVariant } from "@/types";
 import { calculateItemCount, calculateSubtotal, findCoupon } from "@/lib/cart/cartCalculations";
-import { lookupCoupon } from "@/app/actions/store";
-import { cartShipFields, DEFAULT_SHIP_CONFIG, type ShipConfig } from "@/lib/shipping/rules";
+import { lookupCoupon, trackWatch } from "@/app/actions/store";
 export interface AddOptions { variant?: ProductVariant; quantity?: number; ensure?: boolean } // ensure: line quantity becomes max(existing, quantity) instead of adding on top
 type Toast = { id: number; message: string } | null;
 interface Ctx {
@@ -13,13 +12,12 @@ interface Ctx {
   saveForLater: (key: string) => void; syncStock: (stock: Record<string, number>) => void; clearCart: () => void;
   toggleWishlist: (id: string) => void;
   miniOpen: boolean; setMiniOpen: (o: boolean) => void; toast: Toast; notify: (message: string) => void;
-  shipCfg: ShipConfig; // store-wide shipping numbers from admin -> Settings
 }
 const C = createContext<Ctx | null>(null);
 export const lineKey = (i: Pick<CartItem, "product_id" | "variant_id">) => `${i.product_id}:${i.variant_id ?? "-"}`;
 const STORE = "vedaglow:cart:v1"; // cart + wishlist + coupon code (never payment data)
 // Persists to localStorage (loaded after mount so server/client HTML match). Later: Supabase for signed-in customers.
-export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG }: { children: ReactNode; shipCfg?: ShipConfig }) {
+export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [couponObj, setCouponObj] = useState<Coupon | null>(null);
@@ -37,7 +35,7 @@ export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG }: { chil
   useEffect(() => { const on = (e: StorageEvent) => { if (e.key === STORE && e.newValue) { try { const s = JSON.parse(e.newValue); setItems(s.items ?? []); setWishlist(s.wishlist ?? []); setCouponObj(s.coupon && typeof s.coupon === "object" ? s.coupon : null); } catch { /* ignore */ } } }; window.addEventListener("storage", on); return () => window.removeEventListener("storage", on); }, []);
   const notify = useCallback((message: string) => { clearTimeout(timer.current); setToast({ id: Date.now(), message }); timer.current = setTimeout(() => setToast(null), 3200); }, []);
   const addToCart = (p: Product, { variant, quantity = 1, ensure = false }: AddOptions = {}) => {
-    const line: CartItem = { product_id: p.id, variant_id: variant?.id, quantity, unit_price: variant?.price ?? p.price, slug: p.slug, name: p.name, image: p.images[0], visual: p.visual, variant_label: variant?.label, sku: variant?.sku ?? p.sku, max_stock: variant?.stock ?? p.stock, ...cartShipFields(p) };
+    const line: CartItem = { product_id: p.id, variant_id: variant?.id, quantity, unit_price: variant?.price ?? p.price, slug: p.slug, name: p.name, image: p.images[0], visual: p.visual, variant_label: variant?.label, sku: variant?.sku ?? p.sku, max_stock: variant?.stock ?? p.stock };
     setItems(prev => {
       const k = lineKey(line); const hit = prev.find(i => lineKey(i) === k);
       if (!hit) return [...prev, { ...line, quantity: Math.min(quantity, line.max_stock ?? quantity) }];
@@ -48,6 +46,7 @@ export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG }: { chil
   const removeItem = (key: string) => setItems(prev => prev.filter(i => lineKey(i) !== key));
   const saveForLater = (key: string) => {
     const it = items.find(i => lineKey(i) === key); if (!it) return;
+    if (!wishlist.includes(it.product_id)) trackWatch(it.product_id, 1).catch(() => {});
     setWishlist(w => w.includes(it.product_id) ? w : [...w, it.product_id]); // wishlist is per product: variant choice is not kept
     removeItem(key); notify("Saved to your wishlist.");
   };
@@ -57,16 +56,17 @@ export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG }: { chil
     return changed ? next : prev;
   });
   const clearCart = () => { setItems([]); setCouponObj(null); };
-  const toggleWishlist = (id: string) => setWishlist(w => w.includes(id) ? w.filter(x => x !== id) : [...w, id]);
+  const toggleWishlist = (id: string) => { trackWatch(id, wishlist.includes(id) ? -1 : 1).catch(() => {}); setWishlist(w => w.includes(id) ? w.filter(x => x !== id) : [...w, id]); };
   const coupon = couponObj;
   const subtotal = calculateSubtotal(items); const count = calculateItemCount(items);
   const applyCoupon = async (code: string) => {
     let c: Coupon | null = null; try { c = await lookupCoupon(code); } catch { return { ok: false, message: "Could not check the coupon. Please try again." }; }
     if (!c) return { ok: false, message: "Invalid or expired coupon code." };
+    if (c.product_id && !items.some(i => i.product_id === c.product_id)) return { ok: false, message: "This offer is for a specific product. Add that product to your cart first." };
     if (c.min_subtotal && subtotal < c.min_subtotal) return { ok: false, message: `This coupon needs a subtotal of at least $${c.min_subtotal}.` };
     setCouponObj(c); notify("Coupon applied."); return { ok: true, message: "Coupon applied." };
   };
   const removeCoupon = () => { setCouponObj(null); notify("Coupon removed."); };
-  return <C.Provider value={{ shipCfg, items, count, subtotal, wishlist, ready, coupon, applyCoupon, removeCoupon, addToCart, setQuantity, removeItem, saveForLater, syncStock, clearCart, toggleWishlist, miniOpen, setMiniOpen, toast, notify }}>{children}</C.Provider>;
+  return <C.Provider value={{ items, count, subtotal, wishlist, ready, coupon, applyCoupon, removeCoupon, addToCart, setQuantity, removeItem, saveForLater, syncStock, clearCart, toggleWishlist, miniOpen, setMiniOpen, toast, notify }}>{children}</C.Provider>;
 }
 export const useCart = () => { const c = useContext(C); if (!c) throw new Error("useCart outside CartProvider"); return c; };
