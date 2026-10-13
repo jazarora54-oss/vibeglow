@@ -58,8 +58,8 @@ Vercel → your project → **Settings → Environment Variables**. Add the 3 na
 4. In /admin: **Settings** (contact + social links), **Pages**, **FAQs & Chat**, **Messages**.
 
 ---
-## Update 3: emails, offers, views, auto-restock (run migration-3 first!)
-1. Supabase → SQL Editor → New query → paste `supabase/migration-3.sql` → Run. **Before** uploading the new code.
+## Update 4: emails, offers, views, auto-restock (run migration-3 AND migration-4 first!)
+1. Supabase → SQL Editor → New query → paste `supabase/migration-3.sql` → Run. Then a new query with `supabase/migration-4.sql` → Run. (Both are safe to run more than once.) **Before** uploading the new code.
 2. Upload the new code to GitHub (Netlify redeploys by itself).
 
 ### Email (order confirmation, status/tracking updates, offers)

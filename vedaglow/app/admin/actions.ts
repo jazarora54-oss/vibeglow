@@ -4,12 +4,15 @@ import { redirect } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
 import { productToRow, slugify, type ProductInput } from "@/lib/data/mappers";
 import { getLocalProducts } from "@/lib/data/products";
-import type { OrderItem, TemporaryOrder } from "@/types";
+import { DEFAULT_FAQS, DEFAULT_PAGES, isPageSlug, type SiteSettings } from "@/lib/data/defaults";
+import { stateCode, trackingUrl, CARRIERS } from "@/lib/shipping/rules";
+import { getSiteSettings } from "@/lib/data/site";
+import { shipFromOf } from "@/lib/shipping/settings";
+import { buyShippoLabel, getShippoRate, getShippoRates, rateKey, shippoConfigured } from "@/lib/shipping/shippo";
+import type { OrderItem, Parcel, RateOption, ShipAddress, TemporaryOrder } from "@/types";
 import { emailConfigured, sendBatch, sendEmail } from "@/lib/email";
 import { offerEmail, statusUpdate } from "@/lib/emailTemplates";
-import { getSiteSettings } from "@/lib/data/site";
 import { siteUrl } from "@/lib/site";
-import { DEFAULT_FAQS, DEFAULT_PAGES, isPageSlug, type SiteSettings } from "@/lib/data/defaults";
 
 type Res = { ok: boolean; message?: string; id?: string };
 /** Every admin action starts here: signed in AND listed in `admins`. Row Level Security re-checks it in the database. */
@@ -23,7 +26,7 @@ async function admin() {
 }
 const refresh = () => { revalidatePath("/", "layout"); };
 const fail = (e: unknown): Res => ({ ok: false, message: e instanceof Error ? e.message : "Something went wrong." });
-const dbMsg = (m: string) => /duplicate key|unique/i.test(m) ? "That slug / code already exists. Please use a different one." : m;
+const dbMsg = (m: string) => /duplicate key|unique/i.test(m) ? "That slug / code already exists. Please use a different one." : /shipping_mode|shipping_flat|shipping_extra|handling_days|pkg_(length|width|height)|label_cost|tracking_number/i.test(m) ? "The database is missing the new shipping columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql, then try again." : /stock_restored|offer_subscribers|product_views|product_watch|coupons.*product_id|schema cache/i.test(m) ? "The database is missing the newest columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql and then supabase/migration-4.sql, then try again." : m;
 
 export async function signOut() { const sb = serverClient(); await sb.auth.signOut(); redirect("/admin/login"); }
 
@@ -33,6 +36,8 @@ export async function saveProduct(input: ProductInput): Promise<Res> {
     const sb = await admin();
     if (!input.name?.trim()) return { ok: false, message: "Product name is required." };
     if (!(Number(input.price) >= 0) || input.price === ("" as unknown)) return { ok: false, message: "Enter a valid price." };
+    if (input.shipping_mode === "calculated" && !(Number(input.weight_g) > 0)) return { ok: false, message: "Shipping: \"Calculated\" needs the package weight (lb / oz). Add the weight, or choose Flat rate or Free shipping." };
+    for (const [v, name] of [[input.shipping_flat_price, "Shipping price"], [input.shipping_extra_price, "Additional item price"]] as const) if (v != null && (v as unknown) !== "" && !(Number(v) >= 0)) return { ok: false, message: `${name} must be 0 or more.` };
     const slug = slugify(input.slug || input.name); if (!slug) return { ok: false, message: "Slug is required." };
     const id = input.id || `p_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const row = productToRow({ ...input, id, slug });
@@ -53,7 +58,7 @@ export async function importDemoProducts(): Promise<Res> {
     const sb = await admin();
     const rows = getLocalProducts().map(p => ({ ...productToRow({ ...p, is_active: true }), rating: p.rating, review_count: p.review_count, created_at: p.created_at }));
     const { error } = await sb.from("products").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
-    if (error) return { ok: false, message: error.message };
+    if (error) return { ok: false, message: dbMsg(error.message) };
     refresh(); return { ok: true, message: `${rows.length} demo products imported.` };
   } catch (e) { return fail(e); }
 }
@@ -104,11 +109,22 @@ async function adjustStock(sb: SB, items: OrderItem[], sign: 1 | -1) {
     } else await sb.from("products").update({ stock: Math.max(0, p.stock + sign * its.reduce((n, i) => n + i.quantity, 0)) }).eq("id", pid);
   }
 }
+/** Emails the customer about a status change. Never throws; returns a short note for the admin screen ("" when nothing to say). */
+async function notifyCustomer(order: TemporaryOrder, to: string, status: string, tracking: string | null): Promise<string> {
+  try {
+    if (!["processing", "shipped", "delivered", "cancelled"].includes(status)) return "";
+    if (!emailConfigured()) return "Customer email NOT sent: email is not set up yet.";
+    const st = await getSiteSettings(); const mail = statusUpdate({ store_name: st.store_name, email: st.email }, order, status, tracking);
+    if (!mail) return "";
+    const r = await sendEmail({ to, ...mail }); return r.ok ? "Email sent to the customer." : `Email could not be sent: ${r.error}`;
+  } catch (e) { console.error("status email error:", e); return "Email could not be sent."; }
+}
 export async function updateOrder(id: string, v: { status: string; payment_status: string; notes: string; tracking_info?: string }): Promise<Res> {
   try {
     const sb = await admin();
     if (!STATUSES.includes(v.status) || !PAYMENTS.includes(v.payment_status)) return { ok: false, message: "Invalid status." };
-    const { data: cur } = await sb.from("orders").select("status,tracking_info,stock_restored,email,data").eq("id", id).maybeSingle();
+    const { data: cur, error: curErr } = await sb.from("orders").select("status,tracking_info,stock_restored,email,data").eq("id", id).maybeSingle();
+    if (curErr) return { ok: false, message: dbMsg(curErr.message) };
     if (!cur) return { ok: false, message: "Order not found." };
     const was = cur.status as string, now = v.status, order = cur.data as TemporaryOrder; const notes: string[] = []; let restored = Boolean(cur.stock_restored);
     // Cancel before it ships -> stock goes back automatically. Undo the cancel -> stock is taken out again.
@@ -118,18 +134,61 @@ export async function updateOrder(id: string, v: { status: string; payment_statu
     } else if (was === "cancelled" && now !== "cancelled" && restored) { await adjustStock(sb, order.items ?? [], -1); restored = false; notes.push("Order re-opened: stock was taken out again."); }
     const tracking = (v.tracking_info ?? "").trim().slice(0, 300);
     const { error } = await sb.from("orders").update({ status: now, payment_status: v.payment_status, notes: v.notes.slice(0, 2000), tracking_info: tracking || null, stock_restored: restored }).eq("id", id);
-    if (error) return { ok: false, message: error.message };
+    if (error) return { ok: false, message: dbMsg(error.message) };
     // Tell the customer when the status changes (or tracking is added on a shipped order).
     const statusChanged = now !== was, trackingChanged = tracking !== (cur.tracking_info ?? "");
-    if (["processing", "shipped", "delivered", "cancelled"].includes(now) && (statusChanged || (now === "shipped" && trackingChanged))) {
-      if (!emailConfigured()) notes.push("Customer email NOT sent: email is not set up yet.");
-      else {
-        const st = await getSiteSettings(); const mail = statusUpdate({ store_name: st.store_name, email: st.email }, order, now, tracking || null);
-        if (mail) { const r = await sendEmail({ to: String(cur.email), ...mail }); notes.push(r.ok ? "Email sent to the customer." : `Email could not be sent: ${r.error}`); }
-      }
-    }
+    if (statusChanged || (now === "shipped" && trackingChanged)) { const n = await notifyCustomer(order, String(cur.email), now, tracking || null); if (n) notes.push(n); }
     revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${id}`); revalidatePath("/admin/products"); refresh();
     return { ok: true, message: ["Saved ✓", ...notes].join(" ") };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Shipping labels (Shippo: USPS, UPS, FedEx) ----------
+const parcelOk = (p: Parcel) => [p?.weight_oz, p?.l, p?.w, p?.h].every(n => Number.isFinite(Number(n)) && Number(n) > 0) && p.weight_oz <= 1120 && p.l <= 108 && p.w <= 108 && p.h <= 108;
+async function loadOrder(sb: Awaited<ReturnType<typeof admin>>, id: string) {
+  const { data } = await sb.from("orders").select("*").eq("id", id).maybeSingle(); if (!data) throw new Error("Order not found."); return data as any;
+}
+const destOf = (o: TemporaryOrder): ShipAddress => { const a = o.checkout.shipping_address; return { name: `${a.first_name} ${a.last_name}`.trim(), street1: a.address1, street2: a.address2 || undefined, city: a.city, state: stateCode(a.state) || a.state, zip: a.zip, country: "US", phone: o.checkout.contact.phone, email: o.checkout.contact.email }; };
+/** Every carrier's price for this order's parcel, cheapest first (one row per service). */
+export async function getLabelRates(orderId: string, parcel: Parcel): Promise<Res & { rates?: RateOption[] }> {
+  try {
+    const sb = await admin();
+    if (!shippoConfigured()) return { ok: false, message: "Carrier rates are not connected yet. Add SHIPPO_API_KEY in Netlify (Environment variables) and redeploy." };
+    if (!parcelOk(parcel)) return { ok: false, message: "Enter the package weight and the length, width and height (inches). Max 70 lb." };
+    const from = shipFromOf(await getSiteSettings()); if (!from) return { ok: false, message: "Fill in your ship-from address in Settings first (street, city, state, ZIP)." };
+    const row = await loadOrder(sb, orderId);
+    const all = await getShippoRates(from, destOf(row.data as TemporaryOrder), { weight_oz: Number(parcel.weight_oz), l: Number(parcel.l), w: Number(parcel.w), h: Number(parcel.h) });
+    const best = new Map<string, RateOption>(); for (const r of all) { const k = rateKey(r); const c = best.get(k); if (!c || r.amount < c.amount) best.set(k, r); }
+    return { ok: true, rates: [...best.values()].sort((a, b) => a.amount - b.amount) };
+  } catch (e) { return fail(e); }
+}
+/** Buys the label for the chosen rate, then saves carrier, tracking number and label link on the order. */
+export async function buyLabel(orderId: string, rateId: string): Promise<Res> {
+  try {
+    const sb = await admin(); if (!shippoConfigured()) return { ok: false, message: "Carrier rates are not connected yet." };
+    const row = await loadOrder(sb, orderId);
+    if (row.label_url || row.tracking_number) return { ok: false, message: "This order already has a label or tracking number. Cancel the old label in Shippo first if you need a new one." };
+    if (row.status === "cancelled") return { ok: false, message: "This order is cancelled." };
+    const rate = await getShippoRate(String(rateId)); const label = await buyShippoLabel(String(rateId));
+    const patch = { carrier: rate.carrier, tracking_number: label.tracking_number, tracking_url: label.tracking_url || trackingUrl(rate.carrier, label.tracking_number), label_url: label.label_url, label_cost: rate.amount, shipped_at: new Date().toISOString(), tracking_info: `${rate.carrier} ${label.tracking_number}`.trim(), ...(["pending", "processing"].includes(row.status) ? { status: "shipped" } : {}) };
+    const { error } = await sb.from("orders").update(patch).eq("id", orderId);
+    revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${orderId}`);
+    if (error) return { ok: false, message: `The label WAS bought (${rate.carrier} ${label.tracking_number}) but saving it on the order failed: ${dbMsg(error.message)} Label: ${label.label_url}` };
+    const note = ["pending", "processing", "shipped"].includes(row.status) ? await notifyCustomer(row.data as TemporaryOrder, String(row.email), "shipped", patch.tracking_info) : "";
+    return { ok: true, message: `Label bought: ${rate.carrier} ${rate.service}, $${rate.amount.toFixed(2)}.${note ? " " + note : ""}` };
+  } catch (e) { return fail(e); }
+}
+/** For labels bought somewhere else (Pirate Ship, the post office...): save the tracking number by hand. */
+export async function saveTracking(orderId: string, v: { carrier: string; tracking_number: string }): Promise<Res> {
+  try {
+    const sb = await admin(); const num = String(v.tracking_number ?? "").trim().slice(0, 60); const carrier = (CARRIERS as readonly string[]).includes(v.carrier) ? v.carrier : "Other";
+    if (num.length < 6) return { ok: false, message: "Enter the tracking number." };
+    const row = await loadOrder(sb, orderId);
+    const { error } = await sb.from("orders").update({ carrier, tracking_number: num, tracking_url: trackingUrl(carrier, num) || null, shipped_at: row.shipped_at ?? new Date().toISOString(), tracking_info: `${carrier} ${num}`, ...(["pending", "processing"].includes(row.status) ? { status: "shipped" } : {}) }).eq("id", orderId);
+    if (error) return { ok: false, message: dbMsg(error.message) };
+    revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${orderId}`);
+    const note = ["pending", "processing", "shipped"].includes(row.status) ? await notifyCustomer(row.data as TemporaryOrder, String(row.email), "shipped", `${carrier} ${num}`) : "";
+    return { ok: true, message: `Tracking saved. The customer can see it on Track Order.${note ? " " + note : ""}` };
   } catch (e) { return fail(e); }
 }
 
@@ -154,7 +213,7 @@ export async function sendOffers(o: OfferInput): Promise<Res> {
     if (!eligible.length) return { ok: false, message: "Nobody is waiting for this product yet (or they already bought it)." };
     const expires = new Date(Date.now() + days * 86400000);
     const rows = eligible.map(x => ({ code: newCode(), percent_off: o.kind === "percent" ? value : null, amount_off: o.kind === "amount" ? value : null, product_id: o.product_id, usage_limit: 1, expires_at: expires.toISOString(), is_active: true, _to: x.email, _token: x.token }));
-    const { error: ce } = await sb.from("coupons").insert(rows.map(({ _to, _token, ...c }) => c)); if (ce) return { ok: false, message: ce.message };
+    const { error: ce } = await sb.from("coupons").insert(rows.map(({ _to, _token, ...c }) => c)); if (ce) return { ok: false, message: dbMsg(ce.message) };
     const st = await getSiteSettings(); const brand = { store_name: st.store_name, email: st.email }; const exp = expires.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const mails = rows.map(r => { const m = offerEmail(brand, { name: prod.name, slug: prod.slug, kind: o.kind, value, code: r.code, expires: exp, message, unsubscribeUrl: `${siteUrl()}/unsubscribe?t=${r._token}` }); return { to: r._to as string, ...m }; });
     const sent = await sendBatch(mails);
@@ -170,8 +229,15 @@ const cleanUrl = (u: string) => { const t = (u ?? "").trim(); if (!t) return "";
 export async function saveSettings(v: SiteSettings): Promise<Res> {
   try {
     const sb = await admin();
+    const money0 = (x: unknown, d: number) => { const n = Number(x); return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : d; };
+    const t = (x: unknown, n: number) => String(x ?? "").trim().slice(0, n);
+    const stateIn = t(v.ship_state, 40), state = stateIn ? stateCode(stateIn) : "";
+    if (stateIn && !state) return { ok: false, message: "Ship-from state: please use a US state like CA or California." };
+    const zip = t(v.ship_zip, 10); if (zip && !/^\d{5}(-\d{4})?$/.test(zip)) return { ok: false, message: "Ship-from ZIP must be 5 digits." };
     const data: SiteSettings = { store_name: (v.store_name || "VEDAGLOW").trim().slice(0, 80), tagline: v.tagline.trim().slice(0, 120), email: v.email.trim().slice(0, 160), phone: v.phone.trim().slice(0, 40), whatsapp: v.whatsapp.trim().slice(0, 40),
-      address: v.address.trim().slice(0, 300), hours: v.hours.trim().slice(0, 200), instagram: cleanUrl(v.instagram), facebook: cleanUrl(v.facebook), tiktok: cleanUrl(v.tiktok), youtube: cleanUrl(v.youtube) };
+      address: v.address.trim().slice(0, 300), hours: v.hours.trim().slice(0, 200), instagram: cleanUrl(v.instagram), facebook: cleanUrl(v.facebook), tiktok: cleanUrl(v.tiktok), youtube: cleanUrl(v.youtube),
+      free_shipping_over: money0(v.free_shipping_over, 0), default_flat_rate: money0(v.default_flat_rate, 5.99),
+      ship_name: t(v.ship_name, 80), ship_company: t(v.ship_company, 80), ship_street1: t(v.ship_street1, 120), ship_street2: t(v.ship_street2, 80), ship_city: t(v.ship_city, 80), ship_state: state, ship_zip: zip, ship_phone: t(v.ship_phone, 40) };
     const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
     if (error) return { ok: false, message: error.message }; refresh(); return { ok: true };
   } catch (e) { return fail(e); }
