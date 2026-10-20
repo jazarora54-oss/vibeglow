@@ -1,4 +1,4 @@
-import type { CartItem, CheckoutData, Coupon, ShippingOption, TemporaryOrder } from "@/types";
+import type { CartItem, CheckoutData, Coupon, Deal, ShippingOption, TemporaryOrder } from "@/types";
 import { calculateSummary } from "@/lib/cart/cartCalculations";
 import { DEFAULT_HANDLING_DAYS, deliveryRange, toShippingMethod } from "@/lib/shipping/rules";
 const KEY = "vedaglow:orders:v1";
@@ -8,8 +8,8 @@ function newOrderId() {
   return `VDG-${ymd}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 /** Client-side temporary order (localStorage), used only while the database is not connected. Never stores payment details. */
-export function createOrder(items: CartItem[], checkout: CheckoutData, coupon: Coupon | null | undefined, option: ShippingOption): TemporaryOrder {
-  const summary = calculateSummary(items, coupon, { amount: option.price });
+export function createOrder(items: CartItem[], checkout: CheckoutData, coupon: Coupon | null | undefined, option: ShippingOption, deals: Deal[] = []): TemporaryOrder {
+  const summary = calculateSummary(items, coupon, { amount: option.price }, deals);
   const method = toShippingMethod(option);
   const order: TemporaryOrder = {
     id: newOrderId(), created_at: new Date().toISOString(), status: "pending-payment", summary, checkout, shipping_method: method, estimated_delivery: deliveryRange(DEFAULT_HANDLING_DAYS, option.days_min, option.days_max),

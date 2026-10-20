@@ -8,6 +8,7 @@ import { deliveryRange, lineFromProduct, toShippingMethod, type ShipLine } from 
 import { shipConfigOf, shipFromOf } from "@/lib/shipping/settings";
 import { detailFor, quoteShipping } from "@/lib/shipping/quote";
 import { getSiteSettings } from "@/lib/data/site";
+import { getActiveDeals } from "@/lib/data/deals";
 import { rowToProduct } from "@/lib/data/mappers";
 import { getProductBySlug } from "@/lib/data/products";
 import { answerQuestion } from "@/lib/chatbot";
@@ -37,7 +38,7 @@ const newId = () => {
  * Creates the order in the database. Prices, stock and coupon are ALL re-checked here from the database;
  * whatever the browser sent for prices is ignored. Returns {status:"local"} when Supabase / the service key is not set up.
  */
-export async function submitOrder(input: { items: Line[]; checkout: CheckoutData; coupon_code?: string; expected_shipping?: number }): Promise<SubmitResult> {
+export async function submitOrder(input: { items: Line[]; checkout: CheckoutData; coupon_code?: string; expected_shipping?: number; expected_deal_discount?: number }): Promise<SubmitResult> {
   const db = serviceClient();
   if (!isSupabaseConfigured || !db) return { status: "local" };
   const lines = (input?.items ?? []).filter(l => l && typeof l.product_id === "string" && Number.isInteger(l.quantity) && l.quantity >= 1 && l.quantity <= 99).slice(0, 50);
@@ -74,7 +75,10 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
   const opt = q.options.find(o => o.id === co.shipping_method_id);
   if (!opt) return { status: "error", message: "The shipping options changed. Please choose your shipping again." };
   if (typeof input.expected_shipping === "number" && Math.abs(input.expected_shipping - opt.price) > 0.009) return { status: "error", message: `The shipping price is now $${opt.price.toFixed(2)}. Please review your total and place the order again.` };
-  const summary = calculateSummary(cart, coupon, { amount: opt.price });
+  // Sales (admin -> Deals) are worked out again here from the database; the browser only says what it showed the customer.
+  const deals = await getActiveDeals();
+  const summary = calculateSummary(cart, coupon, { amount: opt.price }, deals);
+  if (typeof input.expected_deal_discount === "number" && Math.abs(input.expected_deal_discount - (summary.deal_discount ?? 0)) > 0.009) return { status: "error", message: `A sale has changed, so your discount is now $${(summary.deal_discount ?? 0).toFixed(2)}. Please review your total and place the order again.` };
   const method = toShippingMethod(opt);
   const detail = detailFor(q, opt); const eta = deliveryRange(detail.handling_days, opt.days_min, opt.days_max);
 

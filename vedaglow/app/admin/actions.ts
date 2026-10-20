@@ -26,7 +26,7 @@ async function admin() {
 }
 const refresh = () => { revalidatePath("/", "layout"); };
 const fail = (e: unknown): Res => ({ ok: false, message: e instanceof Error ? e.message : "Something went wrong." });
-const dbMsg = (m: string) => /duplicate key|unique/i.test(m) ? "That slug / code already exists. Please use a different one." : /shipping_mode|shipping_flat|shipping_extra|handling_days|pkg_(length|width|height)|label_cost|tracking_number/i.test(m) ? "The database is missing the new shipping columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql, then try again." : /stock_restored|offer_subscribers|product_views|product_watch|coupons.*product_id|schema cache/i.test(m) ? "The database is missing the newest columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql and then supabase/migration-4.sql, then try again." : m;
+const dbMsg = (m: string) => /\bdeals\b/i.test(m) ? "The database is missing the Deals table. Open Supabase -> SQL Editor, run supabase/migration-5.sql, then try again." : /duplicate key|unique/i.test(m) ? "That slug / code already exists. Please use a different one." : /shipping_mode|shipping_flat|shipping_extra|handling_days|pkg_(length|width|height)|label_cost|tracking_number/i.test(m) ? "The database is missing the new shipping columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql, then try again." : /stock_restored|offer_subscribers|product_views|product_watch|coupons.*product_id|schema cache/i.test(m) ? "The database is missing the newest columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql and then supabase/migration-4.sql, then try again." : m;
 
 export async function signOut() { const sb = serverClient(); await sb.auth.signOut(); redirect("/admin/login"); }
 
@@ -234,7 +234,9 @@ export async function saveSettings(v: SiteSettings): Promise<Res> {
     const stateIn = t(v.ship_state, 40), state = stateIn ? stateCode(stateIn) : "";
     if (stateIn && !state) return { ok: false, message: "Ship-from state: please use a US state like CA or California." };
     const zip = t(v.ship_zip, 10); if (zip && !/^\d{5}(-\d{4})?$/.test(zip)) return { ok: false, message: "Ship-from ZIP must be 5 digits." };
-    const data: SiteSettings = { store_name: (v.store_name || "VEDAGLOW").trim().slice(0, 80), tagline: v.tagline.trim().slice(0, 120), email: v.email.trim().slice(0, 160), phone: v.phone.trim().slice(0, 40), whatsapp: v.whatsapp.trim().slice(0, 40),
+    // Start from what is saved so fields managed elsewhere (Popup & Top bar) are never wiped by this form.
+    const prev = await getSiteSettings();
+    const data: SiteSettings = { ...prev, store_name: (v.store_name || "VEDAGLOW").trim().slice(0, 80), tagline: v.tagline.trim().slice(0, 120), email: v.email.trim().slice(0, 160), phone: v.phone.trim().slice(0, 40), whatsapp: v.whatsapp.trim().slice(0, 40),
       address: v.address.trim().slice(0, 300), hours: v.hours.trim().slice(0, 200), instagram: cleanUrl(v.instagram), facebook: cleanUrl(v.facebook), tiktok: cleanUrl(v.tiktok), youtube: cleanUrl(v.youtube),
       free_shipping_over: money0(v.free_shipping_over, 0), default_flat_rate: money0(v.default_flat_rate, 5.99),
       ship_name: t(v.ship_name, 80), ship_company: t(v.ship_company, 80), ship_street1: t(v.ship_street1, 120), ship_street2: t(v.ship_street2, 80), ship_city: t(v.ship_city, 80), ship_state: state, ship_zip: zip, ship_phone: t(v.ship_phone, 40) };
@@ -279,4 +281,48 @@ export async function setMessageRead(id: string, read: boolean): Promise<Res> {
 }
 export async function deleteMessage(id: string): Promise<Res> {
   try { const sb = await admin(); const { error } = await sb.from("messages").delete().eq("id", id); if (error) return { ok: false, message: error.message }; revalidatePath("/admin/messages"); return { ok: true }; } catch (e) { return fail(e); }
+}
+
+// ---------- Deals (Buy 2 Get 1 Free, Buy 1 Get 1 Half Price, % off) ----------
+export interface DealInput { id?: string; name: string; kind: "buy_get" | "percent"; buy_qty: number; get_qty: number; percent_off: number; product_ids: string[]; starts_on?: string; ends_on?: string; is_active: boolean }
+// Dates are entered as plain days; a deal starts at 00:00 and ends at 23:59 Pacific time (USA).
+const dayStart = (d?: string) => d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T00:00:00-08:00`).toISOString() : null;
+const dayEnd = (d?: string) => d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T23:59:59-08:00`).toISOString() : null;
+export async function saveDeal(d: DealInput): Promise<Res> {
+  try {
+    const sb = await admin();
+    const name = String(d.name ?? "").trim().slice(0, 80); if (!name) return { ok: false, message: "Give the deal a name (customers do not see it, it is for you)." };
+    const kind = d.kind === "percent" ? "percent" : "buy_get";
+    const pct = Number(d.percent_off); if (!(pct > 0 && pct <= 100)) return { ok: false, message: "Discount must be between 1 and 100 percent." };
+    const buy = Math.floor(Number(d.buy_qty)), get = Math.floor(Number(d.get_qty));
+    if (kind === "buy_get" && !(buy >= 1 && buy <= 20 && get >= 1 && get <= 20)) return { ok: false, message: "Buy and Get quantities must be between 1 and 20." };
+    const ids = Array.isArray(d.product_ids) ? [...new Set(d.product_ids.map(x => String(x).slice(0, 80)))].slice(0, 500) : [];
+    const starts_at = dayStart(d.starts_on), ends_at = dayEnd(d.ends_on);
+    if (starts_at && ends_at && ends_at < starts_at) return { ok: false, message: "The end date is before the start date." };
+    const row = { name, kind, buy_qty: kind === "buy_get" ? buy : 1, get_qty: kind === "buy_get" ? get : 1, percent_off: pct, product_ids: ids, starts_at, ends_at, is_active: !!d.is_active };
+    const { error } = d.id ? await sb.from("deals").update(row).eq("id", d.id) : await sb.from("deals").insert(row);
+    if (error) return { ok: false, message: dbMsg(error.message) }; refresh(); revalidatePath("/admin/deals"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+export async function setDealActive(id: string, active: boolean): Promise<Res> {
+  try { const sb = await admin(); const { error } = await sb.from("deals").update({ is_active: active }).eq("id", id); if (error) return { ok: false, message: dbMsg(error.message) }; refresh(); revalidatePath("/admin/deals"); return { ok: true }; } catch (e) { return fail(e); }
+}
+export async function deleteDeal(id: string): Promise<Res> {
+  try { const sb = await admin(); const { error } = await sb.from("deals").delete().eq("id", id); if (error) return { ok: false, message: dbMsg(error.message) }; refresh(); revalidatePath("/admin/deals"); return { ok: true }; } catch (e) { return fail(e); }
+}
+
+// ---------- Top bar message + sale pop-up ----------
+export interface PromoInput { topbar_text: string; topbar_show_shipping: boolean; popup_enabled: boolean; popup_title: string; popup_message: string; popup_code: string; popup_button_text: string; popup_button_link: string; popup_delay: number }
+export async function savePromo(v: PromoInput): Promise<Res> {
+  try {
+    const sb = await admin(); const t = (x: unknown, n: number) => String(x ?? "").trim().slice(0, n);
+    const link = t(v.popup_button_link, 300); if (link && !/^(\/|https?:\/\/)/i.test(link)) return { ok: false, message: "Button link must start with / (like /shop) or https://" };
+    const delay = Math.min(60, Math.max(0, Math.round(Number(v.popup_delay) || 0)));
+    if (v.popup_enabled && !t(v.popup_title, 80) && !t(v.popup_message, 400)) return { ok: false, message: "Write a title or a message for the pop-up first." };
+    const prev = await getSiteSettings();
+    const data: SiteSettings = { ...prev, topbar_text: t(v.topbar_text, 160), topbar_show_shipping: !!v.topbar_show_shipping, popup_enabled: !!v.popup_enabled, popup_title: t(v.popup_title, 80), popup_message: t(v.popup_message, 400),
+      popup_code: t(v.popup_code, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, ""), popup_button_text: t(v.popup_button_text, 30) || "Shop now", popup_button_link: link || "/shop", popup_delay: delay };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
+    if (error) return { ok: false, message: error.message }; refresh(); revalidatePath("/admin/promo"); return { ok: true };
+  } catch (e) { return fail(e); }
 }

@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import type { CartItem, Coupon, Product, ProductVariant } from "@/types";
+import type { CartItem, Coupon, Deal, Product, ProductVariant } from "@/types";
 import { calculateItemCount, calculateSubtotal, findCoupon } from "@/lib/cart/cartCalculations";
 import { lookupCoupon, trackWatch } from "@/app/actions/store";
 import { cartShipFields, DEFAULT_SHIP_CONFIG, type ShipConfig } from "@/lib/shipping/rules";
@@ -14,12 +14,13 @@ interface Ctx {
   toggleWishlist: (id: string) => void;
   miniOpen: boolean; setMiniOpen: (o: boolean) => void; toast: Toast; notify: (message: string) => void;
   shipCfg: ShipConfig; // store-wide shipping numbers from admin -> Settings
+  deals: Deal[]; // sales switched on in admin -> Deals (the server re-checks them when the order is placed)
 }
 const C = createContext<Ctx | null>(null);
 export const lineKey = (i: Pick<CartItem, "product_id" | "variant_id">) => `${i.product_id}:${i.variant_id ?? "-"}`;
 const STORE = "vedaglow:cart:v1"; // cart + wishlist + coupon code (never payment data)
 // Persists to localStorage (loaded after mount so server/client HTML match). Later: Supabase for signed-in customers.
-export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG }: { children: ReactNode; shipCfg?: ShipConfig }) {
+export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG, deals = [] }: { children: ReactNode; shipCfg?: ShipConfig; deals?: Deal[] }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [couponObj, setCouponObj] = useState<Coupon | null>(null);
@@ -69,6 +70,6 @@ export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG }: { chil
     setCouponObj(c); notify("Coupon applied."); return { ok: true, message: "Coupon applied." };
   };
   const removeCoupon = () => { setCouponObj(null); notify("Coupon removed."); };
-  return <C.Provider value={{ shipCfg, items, count, subtotal, wishlist, ready, coupon, applyCoupon, removeCoupon, addToCart, setQuantity, removeItem, saveForLater, syncStock, clearCart, toggleWishlist, miniOpen, setMiniOpen, toast, notify }}>{children}</C.Provider>;
+  return <C.Provider value={{ shipCfg, deals, items, count, subtotal, wishlist, ready, coupon, applyCoupon, removeCoupon, addToCart, setQuantity, removeItem, saveForLater, syncStock, clearCart, toggleWishlist, miniOpen, setMiniOpen, toast, notify }}>{children}</C.Provider>;
 }
 export const useCart = () => { const c = useContext(C); if (!c) throw new Error("useCart outside CartProvider"); return c; };

@@ -5,10 +5,11 @@ import { saveSettings } from "@/app/admin/actions";
 import type { SiteSettings } from "@/lib/data/defaults";
 import { btn, card, inp, lbl } from "./ui";
 import { US_STATES } from "@/lib/shipping/rules";
-const F: [keyof SiteSettings, string, string][] = [
+type TextKey = { [K in keyof SiteSettings]: SiteSettings[K] extends string ? K : never }[keyof SiteSettings]; // only the plain-text fields (the popup/top bar ones have their own page)
+const F: [TextKey, string, string][] = [
   ["store_name", "Store name", "VEDAGLOW"], ["tagline", "Tagline", "Ancient Wisdom. Modern Glow."], ["email", "Support email", "support@yourdomain.com"], ["phone", "Phone", "+1 555 123 4567"],
   ["whatsapp", "WhatsApp number (with country code)", "+15551234567"], ["hours", "Opening / support hours", "Mon–Sat, 9am–6pm"]];
-const SOCIAL: [keyof SiteSettings, string][] = [["instagram", "Instagram link"], ["facebook", "Facebook page link"], ["tiktok", "TikTok link"], ["youtube", "YouTube channel link"]];
+const SOCIAL: [TextKey, string][] = [["instagram", "Instagram link"], ["facebook", "Facebook page link"], ["tiktok", "TikTok link"], ["youtube", "YouTube channel link"]];
 export default function SettingsForm({ initial, shippo, emailReady }: { initial: SiteSettings; shippo: "off" | "test" | "live"; emailReady: boolean }) {
   const [v, setV] = useState(initial); const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null); const [pending, start] = useTransition(); const router = useRouter();
   const set = (k: keyof SiteSettings) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setV(x => ({ ...x, [k]: e.target.value }));

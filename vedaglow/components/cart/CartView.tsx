@@ -4,14 +4,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/components/CartProvider";
 import { cartSummary } from "@/lib/cart/cartCalculations";
+import { dealHints } from "@/lib/cart/deals";
 import { cartIssues, getLiveStock } from "@/lib/cart/validate";
 import CartList from "./CartList"; import CouponBox from "./CouponBox"; import EmptyCart from "./EmptyCart"; import OrderSummary from "./OrderSummary"; import ShippingProgress from "./ShippingProgress";
 export default function CartView() {
-  const { items, ready, coupon, count, syncStock, shipCfg } = useCart(); const router = useRouter(); const [msg, setMsg] = useState("");
+  const { items, ready, coupon, count, syncStock, shipCfg, deals } = useCart(); const router = useRouter(); const [msg, setMsg] = useState("");
   useEffect(() => { if (ready && items.length) getLiveStock(items).then(syncStock); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [ready, items.length]);
   if (!ready) return <div className="mx-auto max-w-6xl px-4 py-16 text-center text-ink/50" aria-busy="true">Loading your cart…</div>;
   if (!items.length) return <div className="px-4 py-12 sm:py-16"><EmptyCart /></div>;
-  const summary = cartSummary(items, coupon, shipCfg); const issues = cartIssues(items);
+  const summary = cartSummary(items, coupon, shipCfg, deals); const issues = cartIssues(items); const hints = dealHints(items, deals);
   const proceed = async () => {
     const live = await getLiveStock(items); syncStock(live);
     const fresh = items.map(i => ({ ...i, max_stock: live[`${i.product_id}:${i.variant_id ?? "-"}`] ?? i.max_stock }));
@@ -22,7 +23,7 @@ export default function CartView() {
       <h1 className="font-display text-4xl font-semibold text-forest">Shopping Cart</h1>
       <p className="mt-1 text-ink/60">{count} {count === 1 ? "Item" : "Items"}</p>
       <div className="mt-6 grid items-start gap-8 lg:grid-cols-[1fr_380px]">
-        <div className="min-w-0 space-y-4"><ShippingProgress subtotal={summary.subtotal} /><CartList items={items} /><Link href="/shop" className="inline-block text-sm font-semibold text-forest underline-offset-4 hover:underline">← Continue shopping</Link></div>
+        <div className="min-w-0 space-y-4"><ShippingProgress subtotal={summary.subtotal} />{hints.map(h => <p key={h} className="rounded-xl border border-gold/40 bg-gold/10 p-4 text-sm font-semibold text-forest">🎁 {h}</p>)}<CartList items={items} /><Link href="/shop" className="inline-block text-sm font-semibold text-forest underline-offset-4 hover:underline">← Continue shopping</Link></div>
         <aside className="rounded-2xl border border-forest/10 bg-white p-5 shadow-card lg:sticky lg:top-28" aria-label="Order summary">
           <h2 className="mb-4 font-display text-2xl font-semibold text-forest">ORDER SUMMARY</h2>
           <OrderSummary summary={summary} /><div className="mt-5 border-t border-forest/10 pt-5"><CouponBox /></div>

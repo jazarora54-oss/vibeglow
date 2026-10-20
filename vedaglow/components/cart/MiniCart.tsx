@@ -9,14 +9,14 @@ import { cartSummary } from "@/lib/cart/cartCalculations";
 import { money } from "@/lib/format";
 import CartThumb from "./CartThumb"; import ShippingProgress from "./ShippingProgress";
 export default function MiniCart() {
-  const { miniOpen, setMiniOpen, items, coupon, count, setQuantity, removeItem, notify, shipCfg } = useCart(); const closeRef = useRef<HTMLButtonElement>(null); const path = usePathname();
+  const { miniOpen, setMiniOpen, items, coupon, count, setQuantity, removeItem, notify, shipCfg, deals } = useCart(); const closeRef = useRef<HTMLButtonElement>(null); const path = usePathname();
   useEffect(() => { setMiniOpen(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [path]);
   useEffect(() => {
     if (!miniOpen) return; closeRef.current?.focus(); const prev = document.body.style.overflow; document.body.style.overflow = "hidden";
     const on = (e: KeyboardEvent) => e.key === "Escape" && setMiniOpen(false); window.addEventListener("keydown", on);
     return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", on); };
   }, [miniOpen, setMiniOpen]);
-  if (!miniOpen) return null; const s = cartSummary(items, coupon, shipCfg);
+  if (!miniOpen) return null; const s = cartSummary(items, coupon, shipCfg, deals);
   return (
     <div className="fixed inset-0 z-[55]"><div className="absolute inset-0 bg-black/45" onClick={() => setMiniOpen(false)} aria-hidden="true" />
       <aside role="dialog" aria-modal="true" aria-label="Shopping cart" className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-cream shadow-lift">
@@ -32,6 +32,7 @@ export default function MiniCart() {
               </div></li>); })}</ul>
           <div className="space-y-3 border-t border-forest/10 bg-white p-4"><ShippingProgress subtotal={s.subtotal} />
             <div className="flex justify-between text-lg"><span>Subtotal</span><b className="text-forest">{money(s.subtotal)}</b></div>
+            {(s.deal_discount ?? 0) > 0 && <div className="flex justify-between text-sm font-semibold text-forest-500"><span>Sale savings</span><span>-{money(s.deal_discount ?? 0)}</span></div>}
             <div className="grid grid-cols-2 gap-3"><Link href="/cart" className="rounded-lg border-2 border-forest py-3 text-center text-sm font-semibold text-forest">VIEW CART</Link><Link href="/checkout" className="rounded-lg bg-forest py-3 text-center text-sm font-semibold text-white">CHECKOUT</Link></div></div></>}
       </aside></div>
   );

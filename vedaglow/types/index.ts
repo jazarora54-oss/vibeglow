@@ -23,6 +23,8 @@ export interface CartItem { product_id: string; variant_id?: string; quantity: n
   ship_mode?: ShipMode; ship_flat?: number; ship_extra?: number; weight_g?: number; pkg?: [number, number, number]; handling_days?: number }
 export interface Customer { id: string; email: string; first_name?: string; last_name?: string }
 export interface Review { id: string; product_id: string; customer_id: string; customer_name?: string; rating: number; body: string; verified?: boolean; created_at?: string; is_demo?: boolean }
+/** A store-wide sale set up in admin -> Deals. buy_get = "buy X, get Y at Z% off" (100 = free, 50 = half price). percent = "Z% off". product_ids empty = all products. */
+export interface Deal { id: string; name: string; kind: "buy_get" | "percent"; buy_qty: number; get_qty: number; percent_off: number; product_ids: string[]; starts_at?: string | null; ends_at?: string | null }
 export interface Coupon { code: string; percent_off?: number; amount_off?: number; min_subtotal?: number; product_id?: string }
 export interface ChatMessage { id: string; role: "user" | "assistant"; content: string }
 
@@ -31,7 +33,7 @@ export interface ShippingMethod { id: string; name: string; description: string;
 export interface CustomerInformation { email: string; phone: string }
 export interface Address { first_name: string; last_name: string; address1: string; address2?: string; city: string; state: string; zip: string; country: string }
 export interface CheckoutData { contact: CustomerInformation; shipping_address: Address; billing_address: Address; billing_same_as_shipping: boolean; shipping_method_id: string; payment_method: string }
-export interface OrderSummary { item_count: number; subtotal: number; discount: number; shipping: number; tax: number; total: number; coupon_code?: string; /** true on the cart page when carrier rates are only known at checkout */ shipping_pending?: boolean }
+export interface OrderSummary { item_count: number; subtotal: number; discount: number; shipping: number; tax: number; total: number; coupon_code?: string; /** sales (admin -> Deals) applied automatically, e.g. Buy 2 Get 1 Free */ deal_discount?: number; deals?: { name: string; amount: number }[]; /** true on the cart page when carrier rates are only known at checkout */ shipping_pending?: boolean }
 export interface OrderItem { product_id: string; variant_id?: string; name: string; slug?: string; variant_label?: string; sku?: string; image?: string; visual?: Product["visual"]; quantity: number; unit_price: number; line_total: number; weight_g?: number; pkg?: [number, number, number]; ship_mode?: ShipMode }
 export interface TemporaryOrder { id: string; created_at: string; status: "pending-payment"; items: OrderItem[]; summary: OrderSummary; checkout: CheckoutData; shipping_method: ShippingMethod; estimated_delivery: string; shipping_detail?: ShippingDetail }
 

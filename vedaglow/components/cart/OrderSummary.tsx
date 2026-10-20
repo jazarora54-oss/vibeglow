@@ -7,6 +7,7 @@ export default function OrderSummary({ summary, context = "cart", shippingNote =
   return (
     <dl className="space-y-3">
       <Row label="Subtotal" value={money(summary.subtotal)} />
+      {(summary.deals ?? []).map((d, n) => <Row key={n} label={d.name} value={`-${money(d.amount)}`} tone="font-semibold text-forest-500" />)}
       {summary.discount > 0 && <Row label={`Discount${summary.coupon_code ? ` (${summary.coupon_code})` : ""}`} value={`-${money(summary.discount)}`} tone="font-semibold text-forest-500" />}
       {summary.shipping_pending
         ? <Row label="Shipping" value={context === "checkout" ? "Enter address to calculate" : "Calculated at checkout"} tone="text-ink/60" />

@@ -1,8 +1,10 @@
 /** Built-in DRAFT content. Everything here can be edited in /admin (Pages, FAQs, Settings). Review the policies before launch; they are templates, not legal advice. */
 export interface SiteSettings { store_name: string; tagline: string; email: string; phone: string; whatsapp: string; address: string; hours: string; instagram: string; facebook: string; tiktok: string; youtube: string;
   // Shipping (admin -> Settings -> Shipping). free_shipping_over: 0 = switched off.
-  free_shipping_over: number; default_flat_rate: number; ship_name: string; ship_company: string; ship_street1: string; ship_street2: string; ship_city: string; ship_state: string; ship_zip: string; ship_phone: string }
-export const DEFAULT_SETTINGS: SiteSettings = { store_name: "VEDAGLOW", tagline: "Ancient Wisdom. Modern Glow.", email: "", phone: "", whatsapp: "", address: "", hours: "", instagram: "", facebook: "", tiktok: "", youtube: "", free_shipping_over: 49, default_flat_rate: 5.99, ship_name: "", ship_company: "", ship_street1: "", ship_street2: "", ship_city: "", ship_state: "", ship_zip: "", ship_phone: "" };
+  free_shipping_over: number; default_flat_rate: number; ship_name: string; ship_company: string; ship_street1: string; ship_street2: string; ship_city: string; ship_state: string; ship_zip: string; ship_phone: string;
+  // Top bar + sale pop-up (admin -> Popup & Top bar). Empty top bar text = the built-in message.
+  topbar_text: string; topbar_show_shipping: boolean; popup_enabled: boolean; popup_title: string; popup_message: string; popup_code: string; popup_button_text: string; popup_button_link: string; popup_delay: number }
+export const DEFAULT_SETTINGS: SiteSettings = { store_name: "VEDAGLOW", tagline: "Ancient Wisdom. Modern Glow.", email: "", phone: "", whatsapp: "", address: "", hours: "", instagram: "", facebook: "", tiktok: "", youtube: "", free_shipping_over: 49, default_flat_rate: 5.99, ship_name: "", ship_company: "", ship_street1: "", ship_street2: "", ship_city: "", ship_state: "", ship_zip: "", ship_phone: "", topbar_text: "", topbar_show_shipping: true, popup_enabled: false, popup_title: "", popup_message: "", popup_code: "", popup_button_text: "Shop now", popup_button_link: "/shop", popup_delay: 4 };
 
 export const PAGE_SLUGS = ["about", "contact", "shipping", "returns", "refunds", "privacy", "terms", "faq"] as const;
 export type PageSlug = (typeof PAGE_SLUGS)[number];
