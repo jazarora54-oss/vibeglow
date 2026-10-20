@@ -14,12 +14,20 @@ import { emptyAddress, validateAddress, validateContact, type Errors } from "@/l
 import type { Address, CustomerInformation, ShippingOption } from "@/types";
 import AddressForm from "./AddressForm"; import CheckoutSteps from "./CheckoutSteps"; import CheckoutSummary from "./CheckoutSummary"; import ContactForm from "./ContactForm"; import DeliveryMethod, { type QuoteState } from "./DeliveryMethod"; import PaymentPlaceholder from "./PaymentPlaceholder";
 const prefixErr = (e: Errors, p: string): Errors => Object.fromEntries(Object.entries(e).map(([k, v]) => [`${p}${k}`, v]));
+const DRAFT = "vedaglow:checkout:v1"; // typed contact + address only (never payment data); lives in this tab until the order is placed
 const strip = (e: Errors, p: string): Errors => Object.fromEntries(Object.entries(e).filter(([k]) => k.startsWith(p)).map(([k, v]) => [k.slice(p.length), v]));
 export default function CheckoutView() {
   const { items, ready, coupon, syncStock, clearCart, notify, shipCfg } = useCart(); const router = useRouter();
   const [contact, setContact] = useState<CustomerInformation>({ email: "", phone: "" });
   const [ship, setShip] = useState<Address>(emptyAddress()); const [bill, setBill] = useState<Address>(emptyAddress()); const [same, setSame] = useState(true);
   const [delivery, setDelivery] = useState(""); const [options, setOptions] = useState<ShippingOption[]>([]); const [quote, setQuote] = useState<QuoteState>({ status: "idle" }); const [nonce, setNonce] = useState(0); const [pay, setPay] = useState(""); const [errors, setErrors] = useState<Errors>({}); const [formMsg, setFormMsg] = useState(""); const [placing, setPlacing] = useState(false);
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    try { const d = JSON.parse(sessionStorage.getItem(DRAFT) || "null");
+      if (d && typeof d === "object") { if (d.contact) setContact(c => ({ ...c, ...d.contact })); if (d.ship) setShip({ ...emptyAddress(), ...d.ship }); if (d.bill) setBill({ ...emptyAddress(), ...d.bill }); if (typeof d.same === "boolean") setSame(d.same); } } catch { /* ignore */ }
+    setRestored(true);
+  }, []);
+  useEffect(() => { if (!restored) return; try { sessionStorage.setItem(DRAFT, JSON.stringify({ contact, ship, bill, same })); } catch { /* ignore */ } }, [restored, contact, ship, bill, same]);
   useEffect(() => { if (ready && items.length) getLiveStock(items).then(syncStock); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [ready]);
   // Shipping choices come from the server. They are asked for again whenever the cart or the delivery address changes.
   const linesKey = JSON.stringify(items.map(i => [i.product_id, i.variant_id ?? "", i.quantity]));
@@ -62,6 +70,7 @@ export default function CheckoutView() {
       if (r.status === "ok") order = storeOrderLocally(r.order);
     } catch { setPlacing(false); setFormMsg("We couldn't place your order. Please check your connection and try again."); return; }
     if (!order) order = createOrder(fresh, checkout, coupon, chosen); // backend not connected yet: demo order on this device
+    try { sessionStorage.removeItem(DRAFT); } catch { /* ignore */ }
     notify("Order confirmed."); router.push(`/order-confirmation/${order.id}`); setTimeout(clearCart, 400);
   };
   return (
