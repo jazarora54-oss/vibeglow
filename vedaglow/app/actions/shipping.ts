@@ -5,6 +5,7 @@ import { getSiteSettings } from "@/lib/data/site";
 import { lineFromProduct } from "@/lib/shipping/rules";
 import { shipConfigOf, shipFromOf } from "@/lib/shipping/settings";
 import { quoteShipping } from "@/lib/shipping/quote";
+import { rateLimitOk } from "@/lib/rateLimit";
 
 type Line = { product_id: string; variant_id?: string; quantity: number };
 export type ShippingQuote = { ok: boolean; options: ShippingOption[]; message?: string; needsAddress?: boolean };
@@ -15,6 +16,7 @@ export type ShippingQuote = { ok: boolean; options: ShippingOption[]; message?: 
  */
 export async function getShippingQuote(input: { items: Line[]; address?: Address; contact?: { email?: string; phone?: string } }): Promise<ShippingQuote> {
   try {
+    if (!(await rateLimitOk("shipquote", 60, 600))) return { ok: false, options: [], message: "Too many requests. Please wait a moment and try again." };
     const wanted = (input?.items ?? []).filter(l => l && typeof l.product_id === "string" && Number.isInteger(l.quantity) && l.quantity >= 1 && l.quantity <= 99).slice(0, 50);
     const [all, settings] = await Promise.all([getProducts(), getSiteSettings()]);
     const byId = new Map(all.map(p => [p.id, p]));

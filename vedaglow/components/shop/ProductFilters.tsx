@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
-import { CATEGORY_OPTIONS, activeFilterCount, type ShopLock, type ShopQuery } from "@/lib/shop";
-interface Props { query: ShopQuery; onChange: (p: Partial<ShopQuery>) => void; onClear: () => void; lock?: ShopLock }
+import { activeFilterCount, type ShopLock, type ShopQuery } from "@/lib/shop";
+export type CatOption = { slug: string; name: string };
+interface Props { query: ShopQuery; onChange: (p: Partial<ShopQuery>) => void; onClear: () => void; lock?: ShopLock; categories: CatOption[] }
 const Group = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <fieldset className="border-b border-forest/10 py-5 first:pt-0"><legend className="mb-3 font-display text-lg font-semibold text-forest">{title}</legend><div className="space-y-2.5">{children}</div></fieldset>);
 const Check = ({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) => (
   <label className="flex cursor-pointer items-center gap-3 text-sm"><input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="h-4 w-4 rounded border-forest/40 accent-forest" />{label}</label>);
 const MAX = 30;
-export default function ProductFilters({ query: q, onChange, onClear, lock }: Props) {
+export default function ProductFilters({ query: q, onChange, onClear, lock, categories }: Props) {
   const [min, setMin] = useState(q.min?.toString() ?? ""); const [max, setMax] = useState(q.max?.toString() ?? "");
   useEffect(() => { setMin(q.min?.toString() ?? ""); setMax(q.max?.toString() ?? ""); }, [q.min, q.max]);
   const applyPrice = () => { const a = parseFloat(min), b = parseFloat(max); onChange({ min: isNaN(a) ? undefined : a, max: isNaN(b) ? undefined : b }); };
@@ -15,7 +16,7 @@ export default function ProductFilters({ query: q, onChange, onClear, lock }: Pr
   const field = "w-full rounded-md border border-forest/20 bg-white px-3 py-2 text-sm";
   return (
     <div>
-      {!lock?.category && <Group title="Category">{CATEGORY_OPTIONS.map(c => <Check key={c.slug} label={c.name} checked={q.category.includes(c.slug)} onChange={v => toggleCat(c.slug, v)} />)}</Group>}
+      {!lock?.category && categories.length > 0 && <Group title="Category">{categories.map(c => <Check key={c.slug} label={c.name} checked={q.category.includes(c.slug)} onChange={v => toggleCat(c.slug, v)} />)}</Group>}
       <Group title="Price">
         <div className="flex items-center gap-2">
           <label className="flex-1"><span className="sr-only">Minimum price</span><input inputMode="decimal" placeholder="Min $" value={min} onChange={e => setMin(e.target.value)} onBlur={applyPrice} onKeyDown={e => e.key === "Enter" && applyPrice()} className={field} /></label>

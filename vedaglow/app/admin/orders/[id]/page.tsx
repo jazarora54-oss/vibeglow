@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
 import OrderStatusForm from "@/components/admin/OrderStatusForm";
 import OrderShipping from "@/components/admin/OrderShipping";
+import OrderTestToggle from "@/components/admin/OrderTestToggle";
 import { getSiteSettings } from "@/lib/data/site";
 import { shipFromOf } from "@/lib/shipping/settings";
 import { shippoMode } from "@/lib/shipping/shippo";
@@ -18,6 +19,7 @@ export default async function Page({ params }: { params: { id: string } }) {
   const parcel = buildParcel(o.items.map(lineFromOrderItem)); const originOk = Boolean(shipFromOf(await getSiteSettings())); const a = o.checkout.shipping_address;
   return (<div className="space-y-5"><Link href="/admin/orders" className="text-sm font-semibold text-forest underline">← All orders</Link>
     <h1 className="font-display text-4xl font-semibold text-forest">{data.id}</h1><p className="text-sm text-ink/60">Placed {new Date(data.created_at).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })}</p>
+    <OrderTestToggle id={data.id} isTest={Boolean(data.is_test)} />
     <div className="grid items-start gap-5 lg:grid-cols-[1fr_340px]">
       <div className="space-y-5">
         <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Items</h2>

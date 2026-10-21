@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { parseQuery, type ShopLock } from "@/lib/shop";
 import { queryProducts } from "@/lib/data/products";
+import { getStoreCategories } from "@/lib/data/categories";
 import ProductGrid from "@/components/product/ProductGrid";
 import ShopToolbar from "./ShopToolbar";
 import FilterSidebar from "./FilterSidebar";
@@ -12,7 +13,7 @@ export default async function ShopPage({ title, subtitle, path, crumbs, searchPa
   const q = parseQuery(searchParams);
   if (lock?.category) q.category = [lock.category];
   if (lock?.special === "new") q.isNew = true; if (lock?.special === "sale") q.onSale = true;
-  const products = await queryProducts(q);
+  const [products, cats] = await Promise.all([queryProducts(q), getStoreCategories()]); const catOptions = cats.map(c => ({ slug: c.slug, name: c.name }));
   const heading = q.search ? `Results for “${q.search}”` : title;
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -23,9 +24,9 @@ export default async function ShopPage({ title, subtitle, path, crumbs, searchPa
       <h1 className="font-display text-4xl font-semibold text-forest sm:text-5xl">{heading}</h1>
       <p className="mb-8 mt-2 max-w-2xl text-ink/70">{q.search ? `Searching all VEDAGLOW products.` : subtitle}</p>
       <div className="flex gap-8">
-        <FilterSidebar lock={lock} />
+        <FilterSidebar lock={lock} categories={catOptions} />
         <div className="min-w-0 flex-1">
-          <ShopToolbar count={products.length} lock={lock} />
+          <ShopToolbar count={products.length} lock={lock} categories={catOptions} />
           {products.length ? <ProductGrid products={products} layout={q.view} columns={4} /> : <EmptyState clearHref={path} />}
         </div>
       </div>

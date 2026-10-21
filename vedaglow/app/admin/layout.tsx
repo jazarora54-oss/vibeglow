@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { LayoutDashboard, Package, Image as Img, Ticket, ShoppingBag, Tag, FileText, HelpCircle, Mail, Settings, ExternalLink, LogOut, Percent, Megaphone } from "lucide-react";
+import { LayoutDashboard, Package, Image as Img, Ticket, ShoppingBag, Tag, FileText, HelpCircle, Mail, Settings, ExternalLink, LogOut, Percent, Megaphone, History, Tags, Star } from "lucide-react";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { serverClient } from "@/lib/supabase/server";
 import AdminSetup from "@/components/admin/AdminSetup";
 import { signOut } from "./actions";
 export const metadata: Metadata = { title: "VEDAGLOW Admin", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
-const nav = [{ href: "/admin", label: "Dashboard", I: LayoutDashboard }, { href: "/admin/products", label: "Products", I: Package }, { href: "/admin/banners", label: "Banners", I: Img }, { href: "/admin/coupons", label: "Coupons", I: Ticket }, { href: "/admin/deals", label: "Deals & Sales", I: Percent }, { href: "/admin/promo", label: "Popup & Top bar", I: Megaphone }, { href: "/admin/orders", label: "Orders", I: ShoppingBag }, { href: "/admin/offers", label: "Offers", I: Tag }, { href: "/admin/messages", label: "Messages", I: Mail }, { href: "/admin/pages", label: "Pages", I: FileText }, { href: "/admin/faqs", label: "FAQs & Chat", I: HelpCircle }, { href: "/admin/settings", label: "Settings", I: Settings }];
+const nav = [{ href: "/admin", label: "Dashboard", I: LayoutDashboard }, { href: "/admin/products", label: "Products", I: Package }, { href: "/admin/banners", label: "Banners", I: Img }, { href: "/admin/coupons", label: "Coupons", I: Ticket }, { href: "/admin/categories", label: "Categories", I: Tags }, { href: "/admin/reviews", label: "Reviews", I: Star }, { href: "/admin/subscribers", label: "Subscribers", I: Mail }, { href: "/admin/deals", label: "Deals & Sales", I: Percent }, { href: "/admin/promo", label: "Popup & Top bar", I: Megaphone }, { href: "/admin/orders", label: "Orders", I: ShoppingBag }, { href: "/admin/offers", label: "Offers", I: Tag }, { href: "/admin/messages", label: "Messages", I: Mail }, { href: "/admin/pages", label: "Pages", I: FileText }, { href: "/admin/faqs", label: "FAQs & Chat", I: HelpCircle }, { href: "/admin/activity", label: "Activity log", I: History }, { href: "/admin/settings", label: "Settings", I: Settings }];
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   if (!isSupabaseConfigured) return <div className="min-h-screen bg-cream"><AdminSetup /></div>;
   const { data: { user } } = await serverClient().auth.getUser();

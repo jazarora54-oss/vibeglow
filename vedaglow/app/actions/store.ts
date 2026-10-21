@@ -13,13 +13,16 @@ import { rowToProduct } from "@/lib/data/mappers";
 import { getProductBySlug } from "@/lib/data/products";
 import { answerQuestion } from "@/lib/chatbot";
 import { validateAddress, validateContact } from "@/lib/checkout/validation";
-import { adminNewOrder, orderConfirmation } from "@/lib/emailTemplates";
+import { adminNewOrder, orderConfirmation, welcomeEmail } from "@/lib/emailTemplates";
+import { siteUrl } from "@/lib/site";
 import { emailConfigured, sendEmail } from "@/lib/email";
+import { rateLimitOk } from "@/lib/rateLimit";
 
 /** Coupon check. Database coupons when Supabase is configured, otherwise the demo coupons. */
 export async function lookupCoupon(code: string): Promise<Coupon | null> {
   const c = String(code ?? "").trim();
   if (!c || c.length > 40) return null;
+  if (!(await rateLimitOk("coupon", 30, 60))) return null; // stops people guessing coupon codes
   if (!isSupabaseConfigured) return findCoupon(c) ?? null;
   const { data } = await publicClient().rpc("get_coupon", { p_code: c });
   const r = Array.isArray(data) ? data[0] : null;
@@ -38,9 +41,13 @@ const newId = () => {
  * Creates the order in the database. Prices, stock and coupon are ALL re-checked here from the database;
  * whatever the browser sent for prices is ignored. Returns {status:"local"} when Supabase / the service key is not set up.
  */
-export async function submitOrder(input: { items: Line[]; checkout: CheckoutData; coupon_code?: string; expected_shipping?: number; expected_deal_discount?: number }): Promise<SubmitResult> {
+export async function submitOrder(input: { items: Line[]; checkout: CheckoutData; coupon_code?: string; expected_shipping?: number; expected_deal_discount?: number; idem?: string }): Promise<SubmitResult> {
   const db = serviceClient();
   if (!isSupabaseConfigured || !db) return { status: "local" };
+  if (!(await rateLimitOk("order", 10, 3600))) return { status: "error", message: "Too many orders from this connection. Please try again in a little while, or contact us." };
+  // Same checkout attempt sent twice (double click, bad connection, back button) -> give back the first order instead of making a second one.
+  const idem = typeof input?.idem === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(input.idem) ? input.idem : undefined;
+  if (idem) { const { data: prev } = await db.from("orders").select("data").eq("data->>idem", idem).maybeSingle(); if (prev?.data) return { status: "ok", order: prev.data as TemporaryOrder }; }
   const lines = (input?.items ?? []).filter(l => l && typeof l.product_id === "string" && Number.isInteger(l.quantity) && l.quantity >= 1 && l.quantity <= 99).slice(0, 50);
   if (!lines.length) return { status: "error", message: "Your cart is empty." };
   const co = input.checkout;
@@ -83,9 +90,12 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
   const detail = detailFor(q, opt); const eta = deliveryRange(detail.handling_days, opt.days_min, opt.days_max);
 
   for (let attempt = 0; attempt < 4; attempt++) {
-    const order: TemporaryOrder = { id: newId(), created_at: new Date().toISOString(), status: "pending-payment", items, summary, checkout: { ...co, payment_method: String(co.payment_method ?? "").slice(0, 60) }, shipping_method: method, estimated_delivery: eta, shipping_detail: detail };
+    const order: TemporaryOrder = { id: newId(), created_at: new Date().toISOString(), status: "pending-payment", items, summary, checkout: { ...co, payment_method: String(co.payment_method ?? "").slice(0, 60) }, shipping_method: method, estimated_delivery: eta, shipping_detail: detail, ...(idem ? { idem } : {}) };
     const { error: e } = await db.from("orders").insert({ id: order.id, status: "pending", payment_status: "unpaid", email: co.contact.email.trim(), phone: co.contact.phone.trim(), customer_name: `${co.shipping_address.first_name} ${co.shipping_address.last_name}`.trim(), total: summary.total, data: order });
-    if (e?.code === "23505") continue; // id collision, try a new one
+    if (e?.code === "23505") {
+      if (idem) { const { data: prev } = await db.from("orders").select("data").eq("data->>idem", idem).maybeSingle(); if (prev?.data) return { status: "ok", order: prev.data as TemporaryOrder }; } // two clicks at once: the other one won
+      continue; // id collision, try a new one
+    }
     if (e) { console.error("order insert failed:", e.message); return { status: "error", message: "Could not save your order. Please try again." }; }
     // Reduce stock (small shop: read-modify-write is fine) and count the coupon use.
     for (const { row, used } of stockUpdates.values()) {
@@ -119,11 +129,12 @@ export async function getStockForLines(lines: { key: string; slug?: string; vari
 }
 
 /** Chat assistant (free, rule-based; answers from admin -> FAQs and the product list). */
-export async function askAssistant(message: string): Promise<string> { return answerQuestion(message); }
+export async function askAssistant(message: string): Promise<string> { if (!(await rateLimitOk("chat", 40, 600))) return "You are sending messages very quickly. Please wait a moment and try again."; return answerQuestion(String(message ?? "").slice(0, 500)); }
 
 /** Contact form -> saved in the database; you read it in admin -> Messages. */
 export async function submitContact(input: { name: string; email: string; subject?: string; message: string; website?: string }): Promise<{ ok: boolean; message: string }> {
   if (input?.website) return { ok: true, message: "Thank you! We will get back to you soon." }; // hidden field filled = bot
+  if (!(await rateLimitOk("contact", 5, 3600))) return { ok: false, message: "You have sent several messages already. Please try again later." };
   const name = String(input?.name ?? "").trim().slice(0, 100), email = String(input?.email ?? "").trim().slice(0, 160);
   const subject = String(input?.subject ?? "").trim().slice(0, 150), message = String(input?.message ?? "").trim().slice(0, 4000);
   if (name.length < 2) return { ok: false, message: "Please enter your name." };
@@ -142,6 +153,7 @@ export type TrackResult =
 /** Customer order tracking. Needs BOTH the order number and the matching email, so strangers cannot browse orders. */
 export async function trackOrder(orderId: string, email: string): Promise<TrackResult> {
   const nope: TrackResult = { ok: false, message: "We could not find an order with those details. Please check the order number and email." };
+  if (!(await rateLimitOk("track", 10, 600))) return { ok: false, message: "Too many attempts. Please wait a few minutes and try again." };
   const id = String(orderId ?? "").trim().toUpperCase().slice(0, 40), em = String(email ?? "").trim().toLowerCase().slice(0, 160);
   if (!id || !em) return nope;
   const db = serviceClient();
@@ -167,6 +179,7 @@ export async function trackWatch(productId: string, delta: number): Promise<void
 export async function subscribeOffers(productId: string, email: string): Promise<{ ok: boolean; message: string }> {
   const em = String(email ?? "").trim().toLowerCase().slice(0, 160);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return { ok: false, message: "Please enter a valid email address." };
+  if (!(await rateLimitOk("subscribe", 10, 3600))) return { ok: false, message: "Too many sign-ups from this connection. Please try again later." };
   const db = serviceClient(); if (!isSupabaseConfigured || !db || typeof productId !== "string") return { ok: false, message: "Sign-up is not available right now." };
   const { data: p } = await db.from("products").select("id").eq("id", productId).eq("is_active", true).maybeSingle(); if (!p) return { ok: false, message: "Product not found." };
   const { error } = await db.from("offer_subscribers").upsert({ product_id: productId, email: em, unsubscribed: false }, { onConflict: "product_id,email" });
@@ -175,7 +188,44 @@ export async function subscribeOffers(productId: string, email: string): Promise
 }
 export async function unsubscribeOffers(token: string): Promise<{ ok: boolean; message: string }> {
   const db = serviceClient(); const t = String(token ?? "").slice(0, 80); if (!db || !t) return { ok: false, message: "This link is not valid." };
-  const { data } = await db.from("offer_subscribers").select("email").eq("token", t).maybeSingle(); if (!data) return { ok: false, message: "This link is not valid or already used." };
+  const { data } = await db.from("offer_subscribers").select("email").eq("token", t).maybeSingle();
+  if (!data) { const { data: n } = await db.from("newsletter_subscribers").select("email").eq("token", t).maybeSingle(); if (!n) return { ok: false, message: "This link is not valid or already used." }; await db.from("newsletter_subscribers").update({ unsubscribed: true }).eq("email", n.email); return { ok: true, message: "You have been unsubscribed. You will not receive any more emails from our list." }; }
   await db.from("offer_subscribers").update({ unsubscribed: true }).eq("email", data.email);
   return { ok: true, message: "You have been unsubscribed. You will not receive any more offers." };
 }
+
+/** A customer writes a review. It is saved as "pending" and only shown after you approve it in admin -> Reviews. */
+export async function submitReview(input: { product_id: string; rating: number; name: string; email: string; body: string; website?: string }): Promise<{ ok: boolean; message: string }> {
+  if (input?.website) return { ok: true, message: "Thank you! Your review will appear once it has been checked." }; // hidden field filled = bot
+  const em = String(input?.email ?? "").trim().toLowerCase().slice(0, 160), name = String(input?.name ?? "").trim().slice(0, 60), body = String(input?.body ?? "").trim().slice(0, 1500), rating = Math.floor(Number(input?.rating));
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return { ok: false, message: "Please enter a valid email address." };
+  if (!name) return { ok: false, message: "Please enter your name." };
+  if (!(rating >= 1 && rating <= 5)) return { ok: false, message: "Please choose a star rating." };
+  if (body.length < 10) return { ok: false, message: "Please write at least a short sentence (10 characters)." };
+  if (/https?:\/\//i.test(body)) return { ok: false, message: "Please do not include links in a review." };
+  if (!(await rateLimitOk("review", 5, 3600))) return { ok: false, message: "You have sent several reviews already. Please try again later." };
+  const db = serviceClient(); if (!isSupabaseConfigured || !db || typeof input.product_id !== "string") return { ok: false, message: "Reviews are not available right now." };
+  const { data: p } = await db.from("products").select("id").eq("id", input.product_id).eq("is_active", true).maybeSingle(); if (!p) return { ok: false, message: "Product not found." };
+  // "Verified purchase": this email has a real (not cancelled, not test) order containing the product.
+  const { data: ords } = await db.from("orders").select("status,data").ilike("email", em.replace(/[%_\\]/g, "\\$&")).neq("status", "cancelled").limit(50);
+  const verified = (ords ?? []).some(o => ((o.data as TemporaryOrder)?.items ?? []).some(i => i.product_id === input.product_id));
+  const { error } = await db.from("reviews").insert({ product_id: input.product_id, customer_name: name, email: em, rating, body, verified, status: "pending" });
+  if (error) return error.code === "23505" ? { ok: false, message: "You have already reviewed this product. Thank you!" } : (console.error("review failed:", error.message), { ok: false, message: "Could not save your review. Please try again." });
+  return { ok: true, message: "Thank you! Your review will appear once it has been checked." };
+}
+
+/** Newsletter box on the homepage. Real list: stored in the database, with an unsubscribe link in every email. */
+export async function subscribeNewsletter(email: string): Promise<{ ok: boolean; message: string }> {
+  const em = String(email ?? "").trim().toLowerCase().slice(0, 160);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return { ok: false, message: "Please enter a valid email address." };
+  if (!(await rateLimitOk("newsletter", 10, 3600))) return { ok: false, message: "Too many sign-ups from this connection. Please try again later." };
+  const db = serviceClient(); if (!isSupabaseConfigured || !db) return { ok: false, message: "Sign-up is not available right now." };
+  const { data: cur } = await db.from("newsletter_subscribers").select("token,unsubscribed").eq("email", em).maybeSingle();
+  if (cur && !cur.unsubscribed) return { ok: true, message: "You are already subscribed. Thank you!" };
+  const { data: row, error } = cur ? await db.from("newsletter_subscribers").update({ unsubscribed: false }).eq("email", em).select("token").maybeSingle() : await db.from("newsletter_subscribers").insert({ email: em }).select("token").maybeSingle();
+  if (error) { console.error("newsletter failed:", error.message); return { ok: false, message: "Could not sign you up. Please try again." }; }
+  const st = await getSiteSettings(); const code = (st.newsletter_code ?? "").trim();
+  if (emailConfigured() && row?.token) { try { const m = welcomeEmail({ store_name: st.store_name, email: st.email }, { code, unsubscribeUrl: `${siteUrl()}/unsubscribe?t=${row.token}` }); await sendEmail({ to: em, ...m }); } catch (e) { console.error("welcome email failed:", e); } }
+  return { ok: true, message: code ? `Thank you for subscribing! Your code: ${code}` : "Thank you for subscribing!" };
+}
+

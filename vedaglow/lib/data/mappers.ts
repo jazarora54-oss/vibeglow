@@ -12,7 +12,7 @@ export function rowToProduct(r: any): Product {
     shipping_info: u(r.shipping_info), return_info: u(r.return_info), suitable_for: u(r.suitable_for), sku: u(r.sku), product_type: u(r.product_type), size: u(r.size),
     category: r.category, price: Number(r.price), compare_at_price: r.compare_at_price != null ? Number(r.compare_at_price) : undefined,
     rating: Number(r.rating ?? 0), review_count: r.review_count ?? 0, images: r.images ?? [], visual: r.visual ?? DEFAULT_VISUAL,
-    tags: r.tags ?? [], seo_title: u(r.seo_title), seo_description: u(r.seo_description), seo_keywords: u(r.seo_keywords),
+    tags: r.tags ?? [], seo_title: u(r.seo_title), seo_description: u(r.seo_description), seo_keywords: u(r.seo_keywords), seo_noindex: r.seo_noindex === true ? true : undefined,
     specifics: Array.isArray(r.specifics) ? r.specifics : [], sort_priority: r.sort_priority ?? 0, gtin: u(r.gtin), mpn: u(r.mpn), condition: u(r.condition),
     weight_g: r.weight_g != null ? Number(r.weight_g) : undefined, dimensions: u(r.dimensions), country_of_origin: u(r.country_of_origin), shelf_life: u(r.shelf_life),
     shipping_mode: asMode(r.shipping_mode), shipping_flat_price: n(r.shipping_flat_price), shipping_extra_price: n(r.shipping_extra_price), handling_days: n(r.handling_days), pkg_length_in: n(r.pkg_length_in), pkg_width_in: n(r.pkg_width_in), pkg_height_in: n(r.pkg_height_in),
@@ -29,7 +29,7 @@ export function autoSeo(p: Pick<ProductInput, "name" | "brand" | "short_descript
   const title = trim(`${p.name}${brandPart} | VEDAGLOW`, 70);
   const base = (p.short_description || p.description || "").replace(/\s+/g, " ").trim();
   const description = trim(base ? `${p.name}: ${base}` : `Shop ${p.name} at VEDAGLOW.`, 160);
-  const keywords = [...new Set([p.name, p.product_type, CAT_NAMES[p.category], p.brand, "VEDAGLOW"].filter(Boolean) as string[])].join(", ");
+  const keywords = [...new Set([p.name, p.product_type, (CAT_NAMES[p.category] ?? p.category.replace(/-/g, " ")), p.brand, "VEDAGLOW"].filter(Boolean) as string[])].join(", ");
   return { title, description, keywords };
 }
 /** Admin form -> database row. */
@@ -42,7 +42,7 @@ export function productToRow(p: ProductInput) {
     shipping_info: blank(p.shipping_info), return_info: blank(p.return_info), suitable_for: blank(p.suitable_for), sku: blank(p.sku), product_type: blank(p.product_type), size: blank(p.size),
     category: p.category, price: Number(p.price), compare_at_price: p.compare_at_price ? Number(p.compare_at_price) : null,
     images: p.images, visual: p.visual, tags: p.tags, variants,
-    seo_title: blank(p.seo_title) ?? seo.title, seo_description: blank(p.seo_description) ?? seo.description, seo_keywords: blank(p.seo_keywords) ?? seo.keywords,
+    seo_title: blank(p.seo_title) ?? seo.title, seo_description: blank(p.seo_description) ?? seo.description, seo_keywords: blank(p.seo_keywords) ?? seo.keywords, ...(p.seo_noindex !== undefined ? { seo_noindex: !!p.seo_noindex } : {}),
     specifics: (p.specifics ?? []).map(x => ({ name: x.name.trim(), value: x.value.trim() })).filter(x => x.name && x.value),
     sort_priority: Math.max(0, Math.min(1000, Math.floor(Number(p.sort_priority) || 0))), gtin: blank(p.gtin), mpn: blank(p.mpn), condition: blank(p.condition) ?? "New",
     weight_g: p.weight_g ? Number(p.weight_g) : null,

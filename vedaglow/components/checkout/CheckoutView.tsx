@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/components/CartProvider";
@@ -17,7 +17,8 @@ const prefixErr = (e: Errors, p: string): Errors => Object.fromEntries(Object.en
 const DRAFT = "vedaglow:checkout:v1"; // typed contact + address only (never payment data); lives in this tab until the order is placed
 const strip = (e: Errors, p: string): Errors => Object.fromEntries(Object.entries(e).filter(([k]) => k.startsWith(p)).map(([k, v]) => [k.slice(p.length), v]));
 export default function CheckoutView() {
-  const { items, ready, coupon, syncStock, clearCart, notify, shipCfg, deals } = useCart(); const router = useRouter();
+  const { items, ready, coupon, syncStock, clearCart, notify, shipCfg, deals } = useCart(); const router = useRouter(); const idemRef = useRef<string>(""); // one key per checkout visit: sending it twice can only ever create one order
+  if (!idemRef.current) idemRef.current = (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`).replace(/[^A-Za-z0-9_-]/g, "");
   const [contact, setContact] = useState<CustomerInformation>({ email: "", phone: "" });
   const [ship, setShip] = useState<Address>(emptyAddress()); const [bill, setBill] = useState<Address>(emptyAddress()); const [same, setSame] = useState(true);
   const [delivery, setDelivery] = useState(""); const [options, setOptions] = useState<ShippingOption[]>([]); const [quote, setQuote] = useState<QuoteState>({ status: "idle" }); const [nonce, setNonce] = useState(0); const [pay, setPay] = useState(""); const [errors, setErrors] = useState<Errors>({}); const [formMsg, setFormMsg] = useState(""); const [placing, setPlacing] = useState(false);
@@ -65,7 +66,7 @@ export default function CheckoutView() {
     const checkout = { contact, shipping_address: ship, billing_address: same ? ship : bill, billing_same_as_shipping: same, shipping_method_id: chosen.id, payment_method: pay || "Not selected (demo)" };
     let order = null as ReturnType<typeof createOrder> | null;
     try {
-      const r = await submitOrder({ items: fresh.map(i => ({ product_id: i.product_id, variant_id: i.variant_id, quantity: i.quantity })), checkout, coupon_code: coupon?.code, expected_shipping: chosen.price, expected_deal_discount: summary.deal_discount ?? 0 });
+      const r = await submitOrder({ items: fresh.map(i => ({ product_id: i.product_id, variant_id: i.variant_id, quantity: i.quantity })), checkout, coupon_code: coupon?.code, expected_shipping: chosen.price, expected_deal_discount: summary.deal_discount ?? 0, idem: idemRef.current });
       if (r.status === "error") { setPlacing(false); setFormMsg(r.message); setNonce(n => n + 1); router.refresh(); /* reloads the latest sales */ return; }
       if (r.status === "ok") order = storeOrderLocally(r.order);
     } catch { setPlacing(false); setFormMsg("We couldn't place your order. Please check your connection and try again."); return; }

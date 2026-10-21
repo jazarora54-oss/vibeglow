@@ -3,7 +3,6 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import type { Product, ProductVariant } from "@/types";
-import { CATEGORY_OPTIONS } from "@/lib/shop";
 import { autoSeo, slugify, type ProductInput } from "@/lib/data/mappers";
 import { deleteProduct, saveProduct } from "@/app/admin/actions";
 import { lbOzToG, shippingBadge, splitLbOz, weightText, DEFAULT_HANDLING_DAYS } from "@/lib/shipping/rules";
@@ -16,7 +15,7 @@ const KINDS = ["bottle", "jar", "tube", "dropper", "pump"] as const;
 const SPEC_IDEAS = ["Skin type", "Hair type", "Volume", "Formulation", "Key ingredient", "Scent", "Free from", "Certification", "Target age", "Package type"];
 const TEXTS: [keyof ProductInput, string][] = [["description", "Description"], ["benefits", "Benefits"], ["ingredients", "Ingredients"], ["how_to_use", "How to use"], ["size_quantity", "Size / quantity note"], ["shipping_info", "Shipping info"], ["return_info", "Return info"]];
 
-export default function ProductForm({ initial, isNew, defaultFlat = 5.99 }: { initial: ProductInput; isNew: boolean; defaultFlat?: number }) {
+export default function ProductForm({ initial, isNew, defaultFlat = 5.99, categories }: { initial: ProductInput; isNew: boolean; defaultFlat?: number; categories: { slug: string; name: string }[] }) {
   const [p, setP] = useState<ProductInput>(initial); const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null); const [pending, start] = useTransition(); const [slugTouched, setSlugTouched] = useState(!isNew); const router = useRouter();
   const set = <K extends keyof ProductInput>(k: K, v: ProductInput[K]) => setP(x => ({ ...x, [k]: v }));
   const variants = p.variants ?? [];
@@ -57,7 +56,7 @@ export default function ProductForm({ initial, isNew, defaultFlat = 5.99 }: { in
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2"><label className={lbl} htmlFor="n">Product name *</label><input id="n" className={inp} value={p.name} onChange={e => { set("name", e.target.value); if (!slugTouched) set("slug", slugify(e.target.value)); }} /></div>
           <div><label className={lbl} htmlFor="s">URL slug</label><input id="s" className={inp} value={p.slug} onChange={e => { setSlugTouched(true); set("slug", e.target.value); }} /><p className="mt-1 text-xs text-ink/50">/product/{slugify(p.slug || p.name) || "…"}</p></div>
-          <div><label className={lbl} htmlFor="c">Category</label><select id="c" className={inp} value={p.category} onChange={e => set("category", e.target.value as Product["category"])}>{CATEGORY_OPTIONS.map(c => <option key={c.slug} value={c.slug}>{c.name}</option>)}</select></div>
+          <div><label className={lbl} htmlFor="c">Category</label><select id="c" className={inp} value={p.category} onChange={e => set("category", e.target.value as Product["category"])}>{[...categories, ...(categories.some(c => c.slug === p.category) ? [] : [{ slug: p.category, name: `${p.category} (not in your category list)` }])].map(c => <option key={c.slug} value={c.slug}>{c.name}</option>)}</select><p className="mt-1 text-xs text-ink/50">Add or rename categories in admin → Categories.</p></div>
           <div className="sm:col-span-2"><label className={lbl} htmlFor="sd">Short description</label><input id="sd" className={inp} value={p.short_description} onChange={e => set("short_description", e.target.value)} /></div>
           <div><label className={lbl} htmlFor="b">Brand</label><input id="b" className={inp} value={p.brand ?? ""} onChange={e => set("brand", e.target.value)} /></div>
           <div><label className={lbl} htmlFor="pt">Product type (e.g. Face Wash)</label><input id="pt" className={inp} value={p.product_type ?? ""} onChange={e => set("product_type", e.target.value)} /></div>
@@ -117,7 +116,8 @@ export default function ProductForm({ initial, isNew, defaultFlat = 5.99 }: { in
             <span className="text-xs text-ink/50">Quick add:</span>{SPEC_IDEAS.filter(n => !specifics.some(x => x.name === n)).map(n => <button key={n} type="button" onClick={() => addSpec(n)} className="rounded-full border border-forest/20 bg-white px-3 py-1 text-xs text-forest hover:bg-forest-100">{n}</button>)}</div></div></section>
 
       <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-display text-2xl font-semibold text-forest">Google search (SEO) &amp; ranking</h2><p className="text-sm text-ink/60">Leave search fields empty and they are written for you automatically when you save.</p></div><button type="button" onClick={fillSeo} className={btn2}>Auto-fill search text</button></div>
-        <div className="rounded-xl border border-forest/10 bg-cream p-4"><p className="truncate text-lg text-blue-700">{effT}</p><p className="truncate text-xs text-green-700">your-website › product › {slugify(p.slug || p.name) || "…"}</p><p className="mt-1 text-sm text-ink/70">{effD}</p></div>
+        <div className="rounded-xl border border-forest/10 bg-cream p-4"><p className="truncate text-lg text-blue-700">{effT}</p><p className="truncate text-xs text-green-700">{(process.env.NEXT_PUBLIC_SITE_URL || "your-website").replace(/^https?:\/\//, "")} › product › {slugify(p.slug || p.name) || "…"}</p><p className="mt-1 text-sm text-ink/70">{effD}</p></div>
+        <label className="mt-3 flex items-center gap-2 text-sm font-semibold"><input type="checkbox" className="h-4 w-4 accent-forest" checked={Boolean(p.seo_noindex)} onChange={e => set("seo_noindex", e.target.checked)} />Hide this product from Google (customers can still buy it with the link)</label>
         <div className="mt-4 grid gap-4">
           <div><label className={lbl} htmlFor="st">Search title <span className="font-normal normal-case">({(p.seo_title ?? "").length}/60)</span></label><input id="st" className={inp} maxLength={90} value={p.seo_title ?? ""} onChange={e => set("seo_title", e.target.value)} placeholder={auto.title} /></div>
           <div><label className={lbl} htmlFor="sdsc">Search description <span className="font-normal normal-case">({(p.seo_description ?? "").length}/160)</span></label><textarea id="sdsc" rows={2} maxLength={300} className={inp} value={p.seo_description ?? ""} onChange={e => set("seo_description", e.target.value)} placeholder={auto.description} /></div>

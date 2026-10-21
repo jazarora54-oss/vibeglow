@@ -7,10 +7,12 @@ import ProductSection from "@/components/product/ProductSection";
 import { getCategories } from "@/lib/data/categories";
 import { getBanners } from "@/lib/data/banners";
 import { getProducts, getRelatedProducts } from "@/lib/data/products";
+import { getSiteSettings } from "@/lib/data/site";
 export default async function Home() {
   const [cats, banners, best, fresh, sale, featured] = await Promise.all([
     getCategories(), getBanners(), getProducts({ tag: "best-seller", limit: 5 }), getProducts({ tag: "new", limit: 4 }),
     getProducts({ tag: "sale", limit: 4 }), getProducts({ tag: "featured", limit: 4 })]);
+  const st = await getSiteSettings();
   const any = best[0] ?? fresh[0] ?? sale[0] ?? featured[0];
   const related = any ? await getRelatedProducts(any, 4) : [];
   const heroProducts = [best[2], best[4], featured[1] ?? best[0], best[1]].filter((p): p is NonNullable<typeof p> => Boolean(p));
@@ -23,6 +25,6 @@ export default async function Home() {
     {featured.length > 0 && <ProductSection title="Featured Products" products={featured} />}
     {related.length > 0 && <ProductSection title="You May Also Like" products={related} />}
     <ServiceBar />
-    <Newsletter />
+    <Newsletter title={st.newsletter_title} text={st.newsletter_text} />
   </>);
 }

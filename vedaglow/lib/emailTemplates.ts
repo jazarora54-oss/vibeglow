@@ -40,3 +40,9 @@ export function offerEmail(b: Brand, p: { name: string; slug: string; kind: "per
     `You are receiving this because you asked for offers on this product at ${esc(b.store_name)}. <a href="${esc(p.unsubscribeUrl)}" style="color:#123d28">Unsubscribe</a>`);
   return { subject: `${off} ${p.name} — just for you`, html, text: `${off} ${p.name}\n${p.message}\nYour code: ${p.code} (valid until ${p.expires}, one use)\n${siteUrl()}/product/${p.slug}\nUnsubscribe: ${p.unsubscribeUrl}` };
 }
+export function welcomeEmail(b: Brand, p: { code: string; unsubscribeUrl: string }) {
+  const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Welcome to ${esc(b.store_name)}</h2><p>Thank you for subscribing. We will send you news about new products and offers.</p>${p.code ? `<p style="font-size:14px;color:#666">Your code:</p><p style="font-size:26px;letter-spacing:3px;font-weight:bold;color:#b8862b;margin:4px 0">${esc(p.code)}</p>` : ""}${btn(`${siteUrl()}/shop`, "Start shopping")}`,
+    `${helpFooter(b)}<br>You are receiving this because you subscribed at ${esc(b.store_name)}. <a href="${esc(p.unsubscribeUrl)}" style="color:#123d28">Unsubscribe</a>`);
+  return { subject: `Welcome to ${b.store_name}`, html, text: `Welcome to ${b.store_name}. Thank you for subscribing.${p.code ? `\nYour code: ${p.code}` : ""}\n${siteUrl()}/shop\nUnsubscribe: ${p.unsubscribeUrl}` };
+}
+

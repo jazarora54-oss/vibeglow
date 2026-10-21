@@ -1,3 +1,4 @@
+/** Built-in fallback only. Pages use getStoreCategories() (admin -> Categories). */
 export const CATEGORY_OPTIONS = [
   { slug: "skin-care", name: "Skin Care", blurb: "Explore our collection of skin care products." },
   { slug: "hair-care", name: "Hair Care", blurb: "Explore our collection of hair care products." },

@@ -5,11 +5,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { Search, User, Heart, ShoppingCart, Menu, X } from "lucide-react";
 import SearchBox from "./SearchBox";
-import Navigation, { navItems } from "./Navigation";
+import Navigation, { navItemsFrom, type NavCat } from "./Navigation";
 import { useCart } from "@/components/CartProvider";
 import { money } from "@/lib/format";
 const Badge = ({ n }: { n: number }) => n > 0 ? <span className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-forest text-[11px] font-bold text-white">{n}</span> : null;
-export default function Header() {
+export default function Header({ categories = [] }: { categories?: NavCat[] }) {
+  const navItems = navItemsFrom(categories);
   const [open, setOpen] = useState(false); const [q, setQ] = useState(false);
   const { count, subtotal, wishlist, setMiniOpen } = useCart(); const path = usePathname(); const onCartPage = path === "/cart" || path === "/checkout";
   return (
@@ -27,7 +28,7 @@ export default function Header() {
         </div>
       </div>
       {q && <div className="px-4 pb-3 lg:hidden"><SearchBox autoFocus onDone={() => setQ(false)} /></div>}
-      <Navigation />
+      <Navigation items={navItems} />
       {open && <div className="fixed inset-0 z-50 lg:hidden"><div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
         <div className="absolute inset-y-0 left-0 w-72 bg-forest p-5 text-white"><button onClick={() => setOpen(false)} aria-label="Close menu" className="mb-4"><X /></button>
           <ul>{navItems.map(n => <li key={n.label}><Link onClick={() => setOpen(false)} href={n.href} className="block border-b border-white/10 py-3 text-sm font-semibold tracking-wide">{n.label}</Link></li>)}</ul></div></div>}

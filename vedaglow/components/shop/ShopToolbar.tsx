@@ -5,7 +5,8 @@ import { activeFilterCount, type ShopLock } from "@/lib/shop";
 import SortSelect from "./SortSelect";
 import MobileFilterDrawer from "./MobileFilterDrawer";
 import { useShopUrl } from "./useShopUrl";
-export default function ShopToolbar({ count, lock }: { count: number; lock?: ShopLock }) {
+import type { CatOption } from "./ProductFilters";
+export default function ShopToolbar({ count, lock, categories }: { count: number; lock?: ShopLock; categories: CatOption[] }) {
   const [open, setOpen] = useState(false);
   const { query, update } = useShopUrl(); const n = activeFilterCount(query);
   const vb = (on: boolean) => `grid h-9 w-9 place-items-center rounded-md ${on ? "bg-forest text-white" : "text-forest hover:bg-forest-100"}`;
@@ -20,7 +21,7 @@ export default function ShopToolbar({ count, lock }: { count: number; lock?: Sho
           <button aria-label="List view" aria-pressed={query.view === "list"} onClick={() => update({ view: "list" })} className={vb(query.view === "list")}><List size={17} /></button>
         </div>
       </div>
-      <MobileFilterDrawer open={open} onClose={() => setOpen(false)} count={count} lock={lock} />
+      <MobileFilterDrawer open={open} onClose={() => setOpen(false)} count={count} lock={lock} categories={categories} />
     </div>
   );
 }

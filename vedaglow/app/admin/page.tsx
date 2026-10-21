@@ -2,26 +2,46 @@ import Link from "next/link";
 import { serverClient } from "@/lib/supabase/server";
 import { card, STATUS_STYLE } from "@/components/admin/ui";
 import { money } from "@/lib/format";
-export default async function Dashboard() {
-  const sb = serverClient();
-  const [{ data: products }, { data: orders }, pstats] = await Promise.all([
-    sb.from("products").select("id,name,stock,is_active,variants"), sb.from("orders").select("id,created_at,status,payment_status,customer_name,total").order("created_at", { ascending: false }).limit(500), sb.rpc("product_stats")]);
-  const views = (pstats.data ?? []).reduce((n: number, r: any) => n + Number(r.views_30d), 0), watchers = (pstats.data ?? []).reduce((n: number, r: any) => n + Number(r.watchers), 0);
-  const ps = products ?? [], os = orders ?? [];
-  const live = os.filter(o => o.status !== "cancelled");
-  const revenue = os.filter(o => o.payment_status === "paid").reduce((s, o) => s + Number(o.total), 0);
-  const low = ps.filter(p => p.is_active && p.stock <= 5);
-  const stats = [["Products", ps.length], ["Orders", live.length], ["New orders", os.filter(o => o.status === "pending").length], ["Paid revenue", money(revenue)], ["Views (30 days)", views], ["Watchers", watchers]];
+import { computeStats, resolveRange, TZ, type OrderRow, type ProductRow } from "@/lib/adminStats";
+export const dynamic = "force-dynamic";
+const LIMIT = 5000;
+const PRESETS: [string, string][] = [["today", "Today"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["month", "This month"]];
+const when = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: TZ, dateStyle: "medium", timeStyle: "short" });
+export default async function Dashboard({ searchParams }: { searchParams: { range?: string; from?: string; to?: string } }) {
+  const sb = serverClient(); const range = resolveRange(searchParams);
+  const pick = (testCol: boolean) => sb.from("orders").select(`id,created_at,status,payment_status,total,customer_name,${testCol ? "is_test," : ""}summary:data->summary,items:data->items`).gte("created_at", range.from.toISOString()).lt("created_at", range.to.toISOString()).order("created_at", { ascending: false }).limit(LIMIT);
+  let ordersRes: any = await pick(true); let testColumn = true;
+  if (ordersRes.error && /is_test/i.test(ordersRes.error.message)) { testColumn = false; ordersRes = await pick(false); } // migration-6 not run yet
+  const [{ data: products }, { data: recentProducts }] = await Promise.all([sb.from("products").select("id,name,stock,is_active,updated_at").limit(2000), sb.from("products").select("id,name,updated_at,is_active").order("updated_at", { ascending: false }).limit(6)]);
+  const orders = (ordersRes.data ?? []) as OrderRow[]; const st = computeStats(orders, (products ?? []) as ProductRow[]); const o = st.orders, m = st.money;
+  const cards: [string, string | number, string?][] = [["Total orders", o.total], ["Awaiting processing", o.pending, "/admin/orders?status=pending"], ["Processing", o.processing, "/admin/orders?status=processing"], ["Shipped", o.shipped, "/admin/orders?status=shipped"], ["Completed (delivered)", o.delivered, "/admin/orders?status=delivered"], ["Cancelled", o.cancelled, "/admin/orders?status=cancelled"]];
+  const moneyCards: [string, string, string?][] = [["Gross sales", money(m.gross), "Products before discounts"], ["Discounts applied", money(m.discounts), "Coupons + automatic deals"], ["Refunds", money(m.refunds), "Orders marked refunded"], ["Net sales", money(m.net), "Gross − discounts − refunded products"]];
   return (<div className="space-y-6">
     <h1 className="font-display text-4xl font-semibold text-forest">Dashboard</h1>
-    {ps.length === 0 && <div className={card}><p className="font-semibold">Your database has no products yet.</p><p className="mt-1 text-sm text-ink/70">Go to <Link className="font-semibold text-forest underline" href="/admin/products">Products</Link> and press “Import demo products”, or add your first product.</p></div>}
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">{stats.map(([k, v]) => <div key={k as string} className={card}><p className="text-xs uppercase tracking-wide text-ink/60">{k}</p><p className="mt-1 text-3xl font-semibold text-forest">{v}</p></div>)}</div>
+    <section className={card}><div className="flex flex-wrap items-center gap-2">{PRESETS.map(([k, l]) => <Link key={k} href={`/admin?range=${k}`} className={`rounded-full px-4 py-1.5 text-sm font-semibold ${range.key === k ? "bg-forest text-white" : "border border-forest/20 bg-white text-forest"}`}>{l}</Link>)}
+      <form className="flex flex-wrap items-center gap-2" action="/admin" method="get"><input type="hidden" name="range" value="custom" /><label className="sr-only" htmlFor="df">From</label><input id="df" type="date" name="from" defaultValue={range.key === "custom" ? range.fromDay : ""} required className="rounded-lg border border-forest/20 px-2 py-1.5 text-sm" /><span className="text-sm text-ink/50">to</span><label className="sr-only" htmlFor="dt">To</label><input id="dt" type="date" name="to" defaultValue={range.key === "custom" ? range.toDay : ""} required className="rounded-lg border border-forest/20 px-2 py-1.5 text-sm" /><button className={`rounded-full px-4 py-1.5 text-sm font-semibold ${range.key === "custom" ? "bg-forest text-white" : "border border-forest/20 bg-white text-forest"}`}>Custom range</button></form></div>
+      <p className="mt-2 text-xs text-ink/60">Showing <b>{range.label}</b> (Pacific time). Stock lists below are always current.</p>
+      {range.error && <p role="alert" className="mt-2 text-sm text-red-700">⚠ {range.error}</p>}</section>
+    {(ordersRes.error && testColumn) && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-800">Could not load orders: {ordersRes.error.message}</p>}
+    {!testColumn && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Test-order marking is switched off until you run <code>supabase/migration-6.sql</code> in Supabase → SQL Editor. Until then every order counts.</p>}
+    {orders.length >= LIMIT && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">This period has more than {LIMIT} orders; only the newest {LIMIT} are counted. Choose a shorter period.</p>}
+    {(products ?? []).length === 0 && <div className={card}><p className="font-semibold">Your database has no products yet.</p><p className="mt-1 text-sm text-ink/70">Go to <Link className="font-semibold text-forest underline" href="/admin/products">Products</Link> and press “Import demo products”, or add your first product.</p></div>}
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">{cards.map(([k, v, href]) => { const inner = <><p className="text-xs uppercase tracking-wide text-ink/60">{k}</p><p className="mt-1 text-3xl font-semibold text-forest">{v}</p></>; return href ? <Link key={k} href={href} className={`${card} block hover:border-forest/30`}>{inner}</Link> : <div key={k} className={card}>{inner}</div>; })}</div>
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">{moneyCards.map(([k, v, hint]) => <div key={k} className={card}><p className="text-xs uppercase tracking-wide text-ink/60">{k}</p><p className="mt-1 text-3xl font-semibold text-forest">{v}</p><p className="mt-1 text-xs text-ink/50">{hint}</p></div>)}</div>
+    <p className="text-xs text-ink/60">Only orders with payment marked <b>paid</b> (or <b>refunded</b>) count as sales. Orders still waiting for payment: <b>{m.awaitingPayment > 0 ? money(m.awaitingPayment) : "none"}</b>. Shipping and tax are not included in these sales numbers.{o.test > 0 && <> {o.test} test order{o.test === 1 ? " is" : "s are"} left out.</>}</p>
     <div className="grid gap-6 lg:grid-cols-2">
+      <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Best-selling products</h2>
+        {st.best.length === 0 ? <p className="text-sm text-ink/60">No orders in this period.</p> : <ol className="divide-y divide-forest/10">{st.best.map((b, n) => <li key={b.id} className="flex items-center justify-between gap-3 py-2.5 text-sm"><span><b className="mr-2 text-ink/40">{n + 1}</b>{b.name}</span><span className="text-right"><b>{b.units} sold</b><br /><span className="text-ink/60">{money(b.revenue)}</span></span></li>)}</ol>}
+        <p className="mt-2 text-xs text-ink/50">Counts every order in this period that is not cancelled or a test.</p></section>
       <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Recent orders</h2>
-        {os.length === 0 ? <p className="text-sm text-ink/60">No orders yet.</p> : <ul className="divide-y divide-forest/10">{os.slice(0, 6).map(o => <li key={o.id}><Link href={`/admin/orders/${o.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm hover:text-forest"><span><b>{o.id}</b><br /><span className="text-ink/60">{o.customer_name}</span></span><span className="text-right"><b>{money(Number(o.total))}</b><br /><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[o.status]}`}>{o.status}</span></span></Link></li>)}</ul>}
+        {orders.length === 0 ? <p className="text-sm text-ink/60">No orders in this period.</p> : <ul className="divide-y divide-forest/10">{orders.slice(0, 6).map(r => <li key={r.id}><Link href={`/admin/orders/${r.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm hover:text-forest"><span><b>{r.id}</b>{r.is_test && <span className="ml-2 rounded bg-amber-100 px-1.5 text-xs font-semibold text-amber-800">TEST</span>}<br /><span className="text-ink/60">{r.customer_name} · {when(r.created_at)}</span></span><span className="text-right"><b>{money(Number(r.total))}</b><br /><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[r.status]}`}>{r.status}</span></span></Link></li>)}</ul>}
         <Link href="/admin/orders" className="mt-3 inline-block text-sm font-semibold text-forest underline">All orders →</Link></section>
-      <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Low / out of stock</h2>
-        {low.length === 0 ? <p className="text-sm text-ink/60">All products are well stocked.</p> : <ul className="divide-y divide-forest/10">{low.map(p => <li key={p.id}><Link href={`/admin/products/${p.id}`} className="flex justify-between py-2.5 text-sm hover:text-forest"><span>{p.name}</span><b className={p.stock <= 0 ? "text-red-700" : "text-amber-700"}>{p.stock <= 0 ? "Out of stock" : `${p.stock} left`}</b></Link></li>)}</ul>}</section>
+      <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Low stock <span className="text-sm font-normal text-ink/50">(5 or fewer)</span></h2>
+        {st.low.length === 0 ? <p className="text-sm text-ink/60">No product is running low.</p> : <ul className="divide-y divide-forest/10">{st.low.map(p => <li key={p.id}><Link href={`/admin/products/${p.id}`} className="flex justify-between py-2.5 text-sm hover:text-forest"><span>{p.name}</span><b className="text-amber-700">{p.stock} left</b></Link></li>)}</ul>}</section>
+      <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Out of stock</h2>
+        {st.out.length === 0 ? <p className="text-sm text-ink/60">Every active product is in stock.</p> : <ul className="divide-y divide-forest/10">{st.out.map(p => <li key={p.id}><Link href={`/admin/products/${p.id}`} className="flex justify-between py-2.5 text-sm hover:text-forest"><span>{p.name}</span><b className="text-red-700">Out of stock</b></Link></li>)}</ul>}</section>
+      <section className={`${card} lg:col-span-2`}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Recent product updates</h2>
+        {(recentProducts ?? []).length === 0 ? <p className="text-sm text-ink/60">No products yet.</p> : <ul className="divide-y divide-forest/10">{(recentProducts ?? []).map((p: any) => <li key={p.id}><Link href={`/admin/products/${p.id}`} className="flex justify-between gap-3 py-2.5 text-sm hover:text-forest"><span>{p.name}{!p.is_active && <span className="ml-2 text-xs text-ink/50">(hidden)</span>}</span><span className="text-ink/60">{when(p.updated_at)}</span></Link></li>)}</ul>}</section>
     </div>
   </div>);
 }

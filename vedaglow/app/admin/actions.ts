@@ -13,6 +13,9 @@ import type { OrderItem, Parcel, RateOption, ShipAddress, TemporaryOrder } from 
 import { emailConfigured, sendBatch, sendEmail } from "@/lib/email";
 import { offerEmail, statusUpdate } from "@/lib/emailTemplates";
 import { siteUrl } from "@/lib/site";
+import { audit } from "@/lib/audit";
+import { DEFAULT_CATEGORIES } from "@/lib/data/categories";
+import { validateImport, summarize, tableToRows, TAGS, type Existing, type RowResult } from "@/lib/productImport";
 
 type Res = { ok: boolean; message?: string; id?: string };
 /** Every admin action starts here: signed in AND listed in `admins`. Row Level Security re-checks it in the database. */
@@ -26,7 +29,7 @@ async function admin() {
 }
 const refresh = () => { revalidatePath("/", "layout"); };
 const fail = (e: unknown): Res => ({ ok: false, message: e instanceof Error ? e.message : "Something went wrong." });
-const dbMsg = (m: string) => /\bdeals\b/i.test(m) ? "The database is missing the Deals table. Open Supabase -> SQL Editor, run supabase/migration-5.sql, then try again." : /duplicate key|unique/i.test(m) ? "That slug / code already exists. Please use a different one." : /shipping_mode|shipping_flat|shipping_extra|handling_days|pkg_(length|width|height)|label_cost|tracking_number/i.test(m) ? "The database is missing the new shipping columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql, then try again." : /stock_restored|offer_subscribers|product_views|product_watch|coupons.*product_id|schema cache/i.test(m) ? "The database is missing the newest columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql and then supabase/migration-4.sql, then try again." : m;
+const dbMsg = (m: string) => /\breviews\b|newsletter_subscribers|redirects/i.test(m) ? "The database is missing the newest tables. Open Supabase -> SQL Editor, run supabase/migration-8.sql, then try again." : /seo_noindex|\bcategories\b/i.test(m) ? "The database is missing the newest category tables. Open Supabase -> SQL Editor, run supabase/migration-7.sql, then try again." : /is_test|audit_log|rate_limits/i.test(m) ? "The database is missing the newest security tables. Open Supabase -> SQL Editor, run supabase/migration-6.sql, then try again." : /\bdeals\b/i.test(m) ? "The database is missing the Deals table. Open Supabase -> SQL Editor, run supabase/migration-5.sql, then try again." : /duplicate key|unique/i.test(m) ? "That slug / code already exists. Please use a different one." : /shipping_mode|shipping_flat|shipping_extra|handling_days|pkg_(length|width|height)|label_cost|tracking_number/i.test(m) ? "The database is missing the new shipping columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql, then try again." : /stock_restored|offer_subscribers|product_views|product_watch|coupons.*product_id|schema cache/i.test(m) ? "The database is missing the newest columns. Open Supabase -> SQL Editor, run supabase/migration-3.sql and then supabase/migration-4.sql, then try again." : m;
 
 export async function signOut() { const sb = serverClient(); await sb.auth.signOut(); redirect("/admin/login"); }
 
@@ -43,20 +46,20 @@ export async function saveProduct(input: ProductInput): Promise<Res> {
     const row = productToRow({ ...input, id, slug });
     const { error } = await sb.from("products").upsert(row, { onConflict: "id" });
     if (error) return { ok: false, message: dbMsg(error.message) };
-    refresh(); return { ok: true, id };
+    await audit(sb, input.id ? "product.update" : "product.create", `${input.name} (${id}), price ${input.price}`); refresh(); return { ok: true, id };
   } catch (e) { return fail(e); }
 }
 export async function deleteProduct(id: string): Promise<Res> {
-  try { const sb = await admin(); const { error } = await sb.from("products").delete().eq("id", id); if (error) return { ok: false, message: error.message }; refresh(); return { ok: true }; } catch (e) { return fail(e); }
+  try { const sb = await admin(); const { error } = await sb.from("products").delete().eq("id", id); if (error) return { ok: false, message: error.message }; await audit(sb, "product.delete", id); refresh(); return { ok: true }; } catch (e) { return fail(e); }
 }
 export async function setProductActive(id: string, active: boolean): Promise<Res> {
-  try { const sb = await admin(); const { error } = await sb.from("products").update({ is_active: active, updated_at: new Date().toISOString() }).eq("id", id); if (error) return { ok: false, message: error.message }; refresh(); return { ok: true }; } catch (e) { return fail(e); }
+  try { const sb = await admin(); const { error } = await sb.from("products").update({ is_active: active, updated_at: new Date().toISOString() }).eq("id", id); if (error) return { ok: false, message: error.message }; await audit(sb, active ? "product.activate" : "product.deactivate", id); refresh(); return { ok: true }; } catch (e) { return fail(e); }
 }
 /** One-click: copies the 12 built-in demo products into the database (skips ones already there). */
 export async function importDemoProducts(): Promise<Res> {
   try {
     const sb = await admin();
-    const rows = getLocalProducts().map(p => ({ ...productToRow({ ...p, is_active: true }), rating: p.rating, review_count: p.review_count, created_at: p.created_at }));
+    const rows = getLocalProducts().map(p => ({ ...productToRow({ ...p, is_active: true }), rating: 0, review_count: 0, created_at: p.created_at }));
     const { error } = await sb.from("products").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
     if (error) return { ok: false, message: dbMsg(error.message) };
     refresh(); return { ok: true, message: `${rows.length} demo products imported.` };
@@ -87,11 +90,11 @@ export async function saveCoupon(c: CouponInput): Promise<Res> {
     const v = Number(c.value); if (!(v > 0)) return { ok: false, message: "Discount value must be more than 0." }; if (c.kind === "percent" && v > 100) return { ok: false, message: "Percent cannot be more than 100." };
     const row = { code, percent_off: c.kind === "percent" ? v : null, amount_off: c.kind === "amount" ? v : null, min_subtotal: c.min_subtotal ? Number(c.min_subtotal) : null, usage_limit: c.usage_limit ? Math.floor(Number(c.usage_limit)) : null, expires_at: c.expires_at ? new Date(c.expires_at).toISOString() : null, is_active: c.is_active };
     const { error } = c.isNew ? await sb.from("coupons").insert(row) : await sb.from("coupons").update(row).eq("code", code);
-    if (error) return { ok: false, message: dbMsg(error.message) }; revalidatePath("/admin/coupons"); return { ok: true };
+    if (error) return { ok: false, message: dbMsg(error.message) }; await audit(sb, c.isNew ? "coupon.create" : "coupon.update", `${code}: ${c.kind === "percent" ? v + "%" : "$" + v}${row.is_active ? "" : " (off)"}`); revalidatePath("/admin/coupons"); return { ok: true };
   } catch (e) { return fail(e); }
 }
 export async function deleteCoupon(code: string): Promise<Res> {
-  try { const sb = await admin(); const { error } = await sb.from("coupons").delete().eq("code", code); if (error) return { ok: false, message: error.message }; revalidatePath("/admin/coupons"); return { ok: true }; } catch (e) { return fail(e); }
+  try { const sb = await admin(); const { error } = await sb.from("coupons").delete().eq("code", code); if (error) return { ok: false, message: error.message }; await audit(sb, "coupon.delete", code); revalidatePath("/admin/coupons"); return { ok: true }; } catch (e) { return fail(e); }
 }
 
 // ---------- Orders ----------
@@ -123,7 +126,7 @@ export async function updateOrder(id: string, v: { status: string; payment_statu
   try {
     const sb = await admin();
     if (!STATUSES.includes(v.status) || !PAYMENTS.includes(v.payment_status)) return { ok: false, message: "Invalid status." };
-    const { data: cur, error: curErr } = await sb.from("orders").select("status,tracking_info,stock_restored,email,data").eq("id", id).maybeSingle();
+    const { data: cur, error: curErr } = await sb.from("orders").select("status,payment_status,tracking_info,stock_restored,email,data").eq("id", id).maybeSingle();
     if (curErr) return { ok: false, message: dbMsg(curErr.message) };
     if (!cur) return { ok: false, message: "Order not found." };
     const was = cur.status as string, now = v.status, order = cur.data as TemporaryOrder; const notes: string[] = []; let restored = Boolean(cur.stock_restored);
@@ -138,6 +141,7 @@ export async function updateOrder(id: string, v: { status: string; payment_statu
     // Tell the customer when the status changes (or tracking is added on a shipped order).
     const statusChanged = now !== was, trackingChanged = tracking !== (cur.tracking_info ?? "");
     if (statusChanged || (now === "shipped" && trackingChanged)) { const n = await notifyCustomer(order, String(cur.email), now, tracking || null); if (n) notes.push(n); }
+    await audit(sb, "order.update", `${id}: status ${was} → ${now}, payment ${cur.payment_status} → ${v.payment_status}`);
     revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${id}`); revalidatePath("/admin/products"); refresh();
     return { ok: true, message: ["Saved ✓", ...notes].join(" ") };
   } catch (e) { return fail(e); }
@@ -174,6 +178,7 @@ export async function buyLabel(orderId: string, rateId: string): Promise<Res> {
     const { error } = await sb.from("orders").update(patch).eq("id", orderId);
     revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${orderId}`);
     if (error) return { ok: false, message: `The label WAS bought (${rate.carrier} ${label.tracking_number}) but saving it on the order failed: ${dbMsg(error.message)} Label: ${label.label_url}` };
+    await audit(sb, "order.label_bought", `${orderId}: ${rate.carrier} ${rate.service}, label cost $${rate.amount.toFixed(2)}`);
     const note = ["pending", "processing", "shipped"].includes(row.status) ? await notifyCustomer(row.data as TemporaryOrder, String(row.email), "shipped", patch.tracking_info) : "";
     return { ok: true, message: `Label bought: ${rate.carrier} ${rate.service}, $${rate.amount.toFixed(2)}.${note ? " " + note : ""}` };
   } catch (e) { return fail(e); }
@@ -187,6 +192,7 @@ export async function saveTracking(orderId: string, v: { carrier: string; tracki
     const { error } = await sb.from("orders").update({ carrier, tracking_number: num, tracking_url: trackingUrl(carrier, num) || null, shipped_at: row.shipped_at ?? new Date().toISOString(), tracking_info: `${carrier} ${num}`, ...(["pending", "processing"].includes(row.status) ? { status: "shipped" } : {}) }).eq("id", orderId);
     if (error) return { ok: false, message: dbMsg(error.message) };
     revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${orderId}`);
+    await audit(sb, "order.tracking_saved", `${orderId}: ${carrier} ${num}`);
     const note = ["pending", "processing", "shipped"].includes(row.status) ? await notifyCustomer(row.data as TemporaryOrder, String(row.email), "shipped", `${carrier} ${num}`) : "";
     return { ok: true, message: `Tracking saved. The customer can see it on Track Order.${note ? " " + note : ""}` };
   } catch (e) { return fail(e); }
@@ -219,6 +225,7 @@ export async function sendOffers(o: OfferInput): Promise<Res> {
     const sent = await sendBatch(mails);
     if (!sent.ok) { await sb.from("coupons").delete().in("code", rows.map(r => r.code)); return { ok: false, message: `Emails could not be sent: ${sent.error}` }; }
     await sb.from("offers").insert({ product_id: o.product_id, kind: o.kind, value, days, message: message || null, sent_count: rows.length });
+    await audit(sb, "offer.sent", `${prod.name}: ${o.kind === "percent" ? value + "%" : "$" + value} to ${rows.length} customers`);
     revalidatePath("/admin/offers"); revalidatePath("/admin/coupons");
     return { ok: true, message: `Offer sent to ${rows.length} customer${rows.length === 1 ? "" : "s"}.` };
   } catch (e) { return fail(e); }
@@ -241,7 +248,7 @@ export async function saveSettings(v: SiteSettings): Promise<Res> {
       free_shipping_over: money0(v.free_shipping_over, 0), default_flat_rate: money0(v.default_flat_rate, 5.99),
       ship_name: t(v.ship_name, 80), ship_company: t(v.ship_company, 80), ship_street1: t(v.ship_street1, 120), ship_street2: t(v.ship_street2, 80), ship_city: t(v.ship_city, 80), ship_state: state, ship_zip: zip, ship_phone: t(v.ship_phone, 40) };
     const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
-    if (error) return { ok: false, message: error.message }; refresh(); return { ok: true };
+    if (error) return { ok: false, message: error.message }; await audit(sb, "settings.update", "Store settings saved"); refresh(); return { ok: true };
   } catch (e) { return fail(e); }
 }
 
@@ -301,18 +308,18 @@ export async function saveDeal(d: DealInput): Promise<Res> {
     if (starts_at && ends_at && ends_at < starts_at) return { ok: false, message: "The end date is before the start date." };
     const row = { name, kind, buy_qty: kind === "buy_get" ? buy : 1, get_qty: kind === "buy_get" ? get : 1, percent_off: pct, product_ids: ids, starts_at, ends_at, is_active: !!d.is_active };
     const { error } = d.id ? await sb.from("deals").update(row).eq("id", d.id) : await sb.from("deals").insert(row);
-    if (error) return { ok: false, message: dbMsg(error.message) }; refresh(); revalidatePath("/admin/deals"); return { ok: true };
+    if (error) return { ok: false, message: dbMsg(error.message) }; await audit(sb, d.id ? "deal.update" : "deal.create", `${name}: ${kind === "percent" ? pct + "% off" : `buy ${buy} get ${get} at ${pct}% off`}${row.is_active ? "" : " (off)"}`); refresh(); revalidatePath("/admin/deals"); return { ok: true };
   } catch (e) { return fail(e); }
 }
 export async function setDealActive(id: string, active: boolean): Promise<Res> {
-  try { const sb = await admin(); const { error } = await sb.from("deals").update({ is_active: active }).eq("id", id); if (error) return { ok: false, message: dbMsg(error.message) }; refresh(); revalidatePath("/admin/deals"); return { ok: true }; } catch (e) { return fail(e); }
+  try { const sb = await admin(); const { error } = await sb.from("deals").update({ is_active: active }).eq("id", id); if (error) return { ok: false, message: dbMsg(error.message) }; await audit(sb, active ? "deal.on" : "deal.off", id); refresh(); revalidatePath("/admin/deals"); return { ok: true }; } catch (e) { return fail(e); }
 }
 export async function deleteDeal(id: string): Promise<Res> {
-  try { const sb = await admin(); const { error } = await sb.from("deals").delete().eq("id", id); if (error) return { ok: false, message: dbMsg(error.message) }; refresh(); revalidatePath("/admin/deals"); return { ok: true }; } catch (e) { return fail(e); }
+  try { const sb = await admin(); const { error } = await sb.from("deals").delete().eq("id", id); if (error) return { ok: false, message: dbMsg(error.message) }; await audit(sb, "deal.delete", id); refresh(); revalidatePath("/admin/deals"); return { ok: true }; } catch (e) { return fail(e); }
 }
 
 // ---------- Top bar message + sale pop-up ----------
-export interface PromoInput { topbar_text: string; topbar_show_shipping: boolean; popup_enabled: boolean; popup_title: string; popup_message: string; popup_code: string; popup_button_text: string; popup_button_link: string; popup_delay: number }
+export interface PromoInput { topbar_text: string; topbar_show_shipping: boolean; popup_enabled: boolean; popup_title: string; popup_message: string; popup_code: string; popup_button_text: string; popup_button_link: string; popup_delay: number; newsletter_title: string; newsletter_text: string; newsletter_code: string }
 export async function savePromo(v: PromoInput): Promise<Res> {
   try {
     const sb = await admin(); const t = (x: unknown, n: number) => String(x ?? "").trim().slice(0, n);
@@ -321,8 +328,145 @@ export async function savePromo(v: PromoInput): Promise<Res> {
     if (v.popup_enabled && !t(v.popup_title, 80) && !t(v.popup_message, 400)) return { ok: false, message: "Write a title or a message for the pop-up first." };
     const prev = await getSiteSettings();
     const data: SiteSettings = { ...prev, topbar_text: t(v.topbar_text, 160), topbar_show_shipping: !!v.topbar_show_shipping, popup_enabled: !!v.popup_enabled, popup_title: t(v.popup_title, 80), popup_message: t(v.popup_message, 400),
-      popup_code: t(v.popup_code, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, ""), popup_button_text: t(v.popup_button_text, 30) || "Shop now", popup_button_link: link || "/shop", popup_delay: delay };
+      popup_code: t(v.popup_code, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, ""), popup_button_text: t(v.popup_button_text, 30) || "Shop now", popup_button_link: link || "/shop", popup_delay: delay,
+      newsletter_title: t(v.newsletter_title, 80) || "Subscribe & get news and offers.", newsletter_text: t(v.newsletter_text, 200), newsletter_code: t(v.newsletter_code, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, "") };
     const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
-    if (error) return { ok: false, message: error.message }; refresh(); revalidatePath("/admin/promo"); return { ok: true };
+    if (error) return { ok: false, message: error.message }; await audit(sb, "promo.update", `Top bar / pop-up saved (pop-up ${data.popup_enabled ? "on" : "off"})`); refresh(); revalidatePath("/admin/promo"); return { ok: true };
   } catch (e) { return fail(e); }
 }
+
+// ---------- Test orders (left out of sales numbers) ----------
+export async function setOrderTest(id: string, isTest: boolean): Promise<Res> {
+  try {
+    const sb = await admin(); const { error } = await sb.from("orders").update({ is_test: !!isTest }).eq("id", String(id));
+    if (error) return { ok: false, message: dbMsg(error.message) };
+    await audit(sb, isTest ? "order.mark_test" : "order.unmark_test", String(id)); revalidatePath("/admin"); revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${id}`); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Categories ----------
+export interface CategoryInput { id?: string; name: string; slug: string; blurb: string; image_url?: string; sort_order: number; is_active: boolean; seo_title?: string; seo_description?: string }
+const RESERVED_SLUGS = ["new-arrivals", "sale", "shop"];
+export async function saveCategory(c: CategoryInput): Promise<Res> {
+  try {
+    const sb = await admin(); const name = String(c.name ?? "").trim().slice(0, 60); if (!name) return { ok: false, message: "Give the category a name." };
+    const slug = slugify(c.slug || name).slice(0, 60); if (!slug) return { ok: false, message: "The URL name is empty." }; if (RESERVED_SLUGS.includes(slug)) return { ok: false, message: `“${slug}” is used by the shop itself. Choose another URL name.` };
+    const img = String(c.image_url ?? "").trim(); if (img && !/^https:\/\/\S+$/i.test(img)) return { ok: false, message: "The image must be a https:// link (use the upload button)." };
+    const row = { name, slug, blurb: String(c.blurb ?? "").trim().slice(0, 300), image_url: img || null, sort_order: Math.max(0, Math.min(9999, Math.floor(Number(c.sort_order) || 0))), is_active: !!c.is_active, seo_title: String(c.seo_title ?? "").trim().slice(0, 120) || null, seo_description: String(c.seo_description ?? "").trim().slice(0, 320) || null };
+    if (c.id) {
+      const { data: old } = await sb.from("categories").select("slug").eq("id", c.id).maybeSingle(); if (!old) return { ok: false, message: "Category not found." };
+      const { error } = await sb.from("categories").update(row).eq("id", c.id); if (error) return { ok: false, message: dbMsg(error.message) };
+      // products point to the category by its URL name: keep them attached when it is renamed
+      if (old.slug !== slug) await sb.from("products").update({ category: slug, updated_at: new Date().toISOString() }).eq("category", old.slug);
+    } else { const { error } = await sb.from("categories").insert(row); if (error) return { ok: false, message: dbMsg(error.message) }; }
+    await audit(sb, c.id ? "category.update" : "category.create", `${name} (${slug})${row.is_active ? "" : " (off)"}`); refresh(); revalidatePath("/admin/categories"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+export async function deleteCategory(id: string): Promise<Res> {
+  try {
+    const sb = await admin(); const { data: c } = await sb.from("categories").select("slug,name").eq("id", id).maybeSingle(); if (!c) return { ok: false, message: "Category not found." };
+    const { count } = await sb.from("products").select("id", { count: "exact", head: true }).eq("category", c.slug);
+    if ((count ?? 0) > 0) return { ok: false, message: `${count} product${count === 1 ? " is" : "s are"} still in “${c.name}”. Move them to another category first, or just switch the category off instead of deleting it.` };
+    const { error } = await sb.from("categories").delete().eq("id", id); if (error) return { ok: false, message: dbMsg(error.message) };
+    await audit(sb, "category.delete", `${c.name} (${c.slug})`); refresh(); revalidatePath("/admin/categories"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+/** Swaps the display order with the neighbour above (-1) or below (+1). */
+export async function moveCategory(id: string, dir: -1 | 1): Promise<Res> {
+  try {
+    const sb = await admin(); const { data } = await sb.from("categories").select("id,sort_order,name").order("sort_order").order("name"); const list = data ?? [];
+    const i = list.findIndex(x => x.id === id), j = i + dir; if (i < 0 || j < 0 || j >= list.length) return { ok: true };
+    const order = list.map(x => x.id); [order[i], order[j]] = [order[j], order[i]];
+    for (let k = 0; k < order.length; k++) await sb.from("categories").update({ sort_order: (k + 1) * 10 }).eq("id", order[k]); // renumber so ties never happen
+    refresh(); revalidatePath("/admin/categories"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+/** Copies the five built-in categories into the database so they can be edited. */
+export async function seedCategories(): Promise<Res> {
+  try {
+    const sb = await admin(); const { error } = await sb.from("categories").upsert(DEFAULT_CATEGORIES.map(c => ({ slug: c.slug, name: c.name, blurb: c.blurb, sort_order: c.sort_order, is_active: true })), { onConflict: "slug", ignoreDuplicates: true });
+    if (error) return { ok: false, message: dbMsg(error.message) }; await audit(sb, "category.seed", "Built-in categories saved to the database"); refresh(); revalidatePath("/admin/categories"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Bulk edit (products ticked in the list) ----------
+export type BulkAction = { type: "visible" | "hidden" } | { type: "category"; value: string } | { type: "price_percent"; value: number } | { type: "stock_set" | "stock_add"; value: number } | { type: "tag_add" | "tag_remove"; value: string };
+export async function bulkUpdateProducts(ids: string[], a: BulkAction): Promise<Res> {
+  try {
+    const sb = await admin(); const list = [...new Set((Array.isArray(ids) ? ids : []).map(String))].slice(0, 500); if (!list.length) return { ok: false, message: "Tick at least one product first." };
+    if ((a.type === "tag_add" || a.type === "tag_remove") && !(TAGS as readonly string[]).includes(a.value)) return { ok: false, message: "Unknown tag." };
+    if (a.type === "price_percent" && !(Number.isFinite(a.value) && a.value >= -90 && a.value <= 500 && a.value !== 0)) return { ok: false, message: "Percent must be between -90 and 500 (not 0)." };
+    if ((a.type === "stock_set" || a.type === "stock_add") && !(Number.isInteger(a.value) && Math.abs(a.value) <= 100000 && (a.type === "stock_add" || a.value >= 0))) return { ok: false, message: "Stock must be a whole number." };
+    if (a.type === "category") { const { data: cs } = await sb.from("categories").select("slug"); const ok = new Set([...(cs ?? []).map(c => c.slug), ...(((cs ?? []).length ? [] : DEFAULT_CATEGORIES.map(c => c.slug)))]); if (!ok.has(a.value)) return { ok: false, message: "That category does not exist." }; }
+    const { data: rows, error } = await sb.from("products").select("id,price,compare_at_price,stock,tags,variants").in("id", list); if (error) return { ok: false, message: dbMsg(error.message) };
+    let changed = 0; const skipped: string[] = []; const now = new Date().toISOString();
+    for (const r of rows ?? []) {
+      const hasVar = Array.isArray(r.variants) && r.variants.length > 0; let patch: Record<string, unknown> | null = null;
+      switch (a.type) {
+        case "visible": patch = { is_active: true }; break; case "hidden": patch = { is_active: false }; break; case "category": patch = { category: a.value }; break;
+        case "price_percent": { if (hasVar) { skipped.push(r.id); break; } const np = Math.round(Number(r.price) * (1 + a.value / 100) * 100) / 100; if (!(np > 0)) { skipped.push(r.id); break; } patch = { price: np, ...(r.compare_at_price != null && Number(r.compare_at_price) <= np ? { compare_at_price: null } : {}) }; break; }
+        case "stock_set": case "stock_add": { if (hasVar) { skipped.push(r.id); break; } const ns = a.type === "stock_set" ? a.value : Math.max(0, Number(r.stock) + a.value); patch = { stock: ns }; break; }
+        case "tag_add": patch = { tags: [...new Set([...(r.tags ?? []), a.value])] }; break; case "tag_remove": patch = { tags: (r.tags ?? []).filter((t: string) => t !== a.value) }; break;
+      }
+      if (!patch) continue; const { error: e2 } = await sb.from("products").update({ ...patch, updated_at: now }).eq("id", r.id); if (e2) return { ok: false, message: `${changed} changed, then stopped: ${dbMsg(e2.message)}` }; changed++;
+    }
+    await audit(sb, "product.bulk_edit", `${a.type}${"value" in a ? " " + a.value : ""}: ${changed} products${skipped.length ? `, ${skipped.length} skipped (variations or price below 0)` : ""}`); refresh(); revalidatePath("/admin/products");
+    return { ok: true, message: `${changed} product${changed === 1 ? "" : "s"} updated.${skipped.length ? ` ${skipped.length} skipped (they have variations, or the new price would be 0 or less).` : ""}` };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- CSV import (checked first, written only after you confirm) ----------
+type ImportCtx = { existing: Existing[]; cats: string[] };
+async function importCtx(sb: Awaited<ReturnType<typeof admin>>): Promise<ImportCtx> {
+  const [{ data: ps }, { data: cs }] = await Promise.all([sb.from("products").select("id,slug,sku,variants").limit(5000), sb.from("categories").select("slug")]);
+  return { existing: (ps ?? []).map(p => ({ id: p.id, slug: p.slug, sku: p.sku, hasVariants: Array.isArray(p.variants) && p.variants.length > 0 })), cats: (cs ?? []).length ? (cs ?? []).map(c => c.slug) : DEFAULT_CATEGORIES.map(c => c.slug) };
+}
+export interface ImportPreview { ok: boolean; message?: string; summary?: { create: number; update: number; skip: number; error: number }; problems?: { line: number; name: string; action: string; text: string }[]; unknown?: string[] }
+const view = (results: RowResult[]) => results.filter(r => r.action !== "create" || r.messages.length).slice(0, 60).map(r => ({ line: r.line, name: r.name, action: r.action, text: [r.note, ...r.messages].filter(Boolean).join(" ") }));
+export async function previewProductImport(table: string[][], updateExisting: boolean): Promise<ImportPreview> {
+  try {
+    const sb = await admin(); const ctx = await importCtx(sb); const t = (Array.isArray(table) ? table : []).slice(0, 600).map(r => (Array.isArray(r) ? r : []).slice(0, 40).map(x => String(x ?? "").slice(0, 9000)));
+    const v = validateImport(t, ctx.existing, ctx.cats, !!updateExisting); if (v.fileError) return { ok: false, message: v.fileError, unknown: v.unknown };
+    return { ok: true, summary: summarize(v.results), problems: view(v.results), unknown: v.unknown };
+  } catch (e) { const r = fail(e); return { ok: false, message: r.message }; }
+}
+export async function commitProductImport(table: string[][], updateExisting: boolean): Promise<Res> {
+  try {
+    const sb = await admin(); const ctx = await importCtx(sb); const t = (Array.isArray(table) ? table : []).slice(0, 600).map(r => (Array.isArray(r) ? r : []).slice(0, 40).map(x => String(x ?? "").slice(0, 9000)));
+    const v = validateImport(t, ctx.existing, ctx.cats, !!updateExisting); if (v.fileError) return { ok: false, message: v.fileError };
+    const bad = v.results.filter(r => r.action === "error"); if (bad.length) return { ok: false, message: `${bad.length} row${bad.length === 1 ? " has" : "s have"} errors. Nothing was imported. Fix them and try again.` };
+    const now = new Date().toISOString(); let created = 0, updated = 0;
+    for (const r of v.results) {
+      if (!r.patch) continue;
+      if (r.action === "create") {
+        const p = r.patch; const id = `p_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        const row = productToRow({ id, slug: p.slug!, name: p.name!, short_description: p.short_description ?? "", description: p.description ?? undefined, brand: p.brand ?? undefined, sku: p.sku ?? undefined, category: p.category!, price: p.price!, compare_at_price: p.compare_at_price ?? undefined, images: p.images ?? [], visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: (p.tags ?? []) as any, stock: p.stock ?? 0, is_active: p.is_active ?? false, seo_title: p.seo_title ?? undefined, seo_description: p.seo_description ?? undefined, gtin: p.gtin ?? undefined, mpn: p.mpn ?? undefined, shipping_mode: "flat" });
+        const { error } = await sb.from("products").insert(row); if (error) return { ok: false, message: `${created} created, then stopped at line ${r.line}: ${dbMsg(error.message)}` }; created++;
+      } else if (r.action === "update" && r.existingId) {
+        const { error } = await sb.from("products").update({ ...r.patch, updated_at: now }).eq("id", r.existingId); if (error) return { ok: false, message: `${created} created, ${updated} updated, then stopped at line ${r.line}: ${dbMsg(error.message)}` }; updated++;
+      }
+    }
+    const skipped = v.results.filter(r => r.action === "skip").length;
+    await audit(sb, "product.csv_import", `${created} created, ${updated} updated, ${skipped} skipped`); refresh(); revalidatePath("/admin/products");
+    return { ok: true, message: `Import finished: ${created} created${created ? " (as hidden drafts unless the file said yes)" : ""}, ${updated} updated, ${skipped} skipped.` };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Reviews (moderation) ----------
+export async function setReviewStatus(id: string, status: "approved" | "rejected" | "pending"): Promise<Res> {
+  try {
+    if (!["approved", "rejected", "pending"].includes(status)) return { ok: false, message: "Unknown status." };
+    const sb = await admin(); const { error } = await sb.from("reviews").update({ status }).eq("id", String(id)); if (error) return { ok: false, message: dbMsg(error.message) };
+    await audit(sb, `review.${status}`, String(id)); refresh(); revalidatePath("/admin/reviews"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+export async function replyReview(id: string, text: string): Promise<Res> {
+  try {
+    const sb = await admin(); const t = String(text ?? "").trim().slice(0, 600); const { error } = await sb.from("reviews").update({ admin_reply: t || null }).eq("id", String(id)); if (error) return { ok: false, message: dbMsg(error.message) };
+    await audit(sb, "review.reply", String(id)); refresh(); revalidatePath("/admin/reviews"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+export async function deleteReview(id: string): Promise<Res> {
+  try { const sb = await admin(); const { error } = await sb.from("reviews").delete().eq("id", String(id)); if (error) return { ok: false, message: dbMsg(error.message) }; await audit(sb, "review.delete", String(id)); refresh(); revalidatePath("/admin/reviews"); return { ok: true }; } catch (e) { return fail(e); }
+}
+

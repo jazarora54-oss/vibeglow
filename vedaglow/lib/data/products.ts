@@ -1,8 +1,8 @@
 import type { ShopQuery } from "@/lib/shop";
-import { CATEGORY_OPTIONS } from "@/lib/shop";
 import type { Product } from "@/types";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { publicClient } from "@/lib/supabase/public";
+import { serviceClient } from "@/lib/supabase/server";
 import { rowToProduct } from "./mappers";
 // Data-access layer: components never import the array directly.
 // In Step 3 replace the bodies of these functions with Supabase queries.
@@ -29,17 +29,29 @@ const localProducts: Product[] = [
 
 /** Demo products bundled with the code (also used by the admin "Import demo products" button). */
 export const getLocalProducts = () => localProducts;
+/** Ratings and review counts are NEVER taken from the product row (demo numbers); they come from approved customer reviews. */
+async function withRealStats(list: Product[]): Promise<Product[]> {
+  const zero = (p: Product): Product => ({ ...p, rating: 0, review_count: 0, sold_count: 0 });
+  if (!isSupabaseConfigured) return list.map(zero);
+  try {
+    const svc = serviceClient();
+    const [rs, ss] = await Promise.all([publicClient().rpc("review_stats"), svc ? svc.rpc("product_sales") : Promise.resolve({ data: null })]);
+    const rev = new Map<string, { a: number; c: number }>((Array.isArray(rs.data) ? rs.data : []).map((r: any) => [String(r.product_id), { a: Number(r.avg_rating), c: Number(r.review_count) }]));
+    const sold = new Map<string, number>((Array.isArray(ss.data) ? ss.data : []).map((r: any) => [String(r.product_id), Number(r.units)]));
+    return list.map(p => ({ ...p, rating: rev.get(p.id)?.a ?? 0, review_count: rev.get(p.id)?.c ?? 0, sold_count: sold.get(p.id) ?? 0 }));
+  } catch { return list.map(zero); }
+}
 /** Live products from Supabase when configured; the bundled demo data otherwise (or if the database is unreachable). */
 async function loadAll(): Promise<Product[]> {
-  if (!isSupabaseConfigured) return localProducts;
+  if (!isSupabaseConfigured) return withRealStats(localProducts);
   try {
     const db = publicClient();
     // Boosted products first (admin -> Search & ranking), then newest.
     let { data, error } = await db.from("products").select("*").eq("is_active", true).order("sort_priority", { ascending: false }).order("created_at", { ascending: false });
     if (error) ({ data, error } = await db.from("products").select("*").eq("is_active", true).order("created_at", { ascending: false })); // before migration-2
-    if (error || !data) { console.error("Supabase products error:", error?.message); return localProducts; }
-    return data.map(rowToProduct);
-  } catch (e) { console.error("Supabase unreachable:", e); return localProducts; }
+    if (error || !data) { console.error("Supabase products error:", error?.message); return withRealStats(localProducts); }
+    return withRealStats(data.map(rowToProduct));
+  } catch (e) { console.error("Supabase unreachable:", e); return withRealStats(localProducts); }
 }
 export type ProductFilter = { tag?: Product["tags"][number]; category?: string; limit?: number; excludeId?: string };
 export async function getProducts(f: ProductFilter = {}): Promise<Product[]> {
@@ -61,7 +73,7 @@ export async function queryProducts(q: ShopQuery): Promise<Product[]> {
   const terms = q.search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
   const special = [q.isNew && "new", q.bestSeller && "best-seller", q.featured && "featured"].filter(Boolean) as string[];
   const r = (await loadAll()).filter(p => {
-    const hay = [p.name, p.short_description, p.category, CATEGORY_OPTIONS.find(c => c.slug === p.category)?.name, ...p.tags].join(" ").toLowerCase();
+    const hay = [p.name, p.short_description, p.category, p.category.replace(/-/g, " "), ...p.tags].join(" ").toLowerCase();
     if (!terms.every(t => hay.includes(t))) return false;
     if (q.category.length && !q.category.includes(p.category)) return false;
     if (q.min !== undefined && p.price < q.min) return false;
@@ -72,7 +84,7 @@ export async function queryProducts(q: ShopQuery): Promise<Product[]> {
   });
   const by: Record<string, (a: Product, b: Product) => number> = {
     featured: (a, b) => (b.sort_priority ?? 0) - (a.sort_priority ?? 0) || Number(b.tags.includes("featured")) - Number(a.tags.includes("featured")) || b.rating - a.rating,
-    newest: (a, b) => b.created_at.localeCompare(a.created_at), "best-selling": (a, b) => b.review_count - a.review_count,
+    newest: (a, b) => b.created_at.localeCompare(a.created_at), "best-selling": (a, b) => (b.sold_count ?? 0) - (a.sold_count ?? 0) || b.review_count - a.review_count,
     "price-low": (a, b) => a.price - b.price, "price-high": (a, b) => b.price - a.price, rating: (a, b) => b.rating - a.rating || b.review_count - a.review_count,
   };
   return r.sort(by[q.sort]);

@@ -24,7 +24,7 @@ export default function ProductCard({ product, layout = "grid" }: { product: Pro
       <div className={list ? "flex min-w-0 flex-1 flex-col justify-center" : "contents"}>
       <Link href={`/product/${product.slug}`} className="mt-3 text-sm font-semibold leading-snug hover:text-forest">{product.name}</Link>
       <p className="mt-0.5 text-xs text-ink/60">{product.short_description}</p>
-      <div className="mt-2"><Stars value={product.rating} count={product.review_count} /></div>
+      {product.review_count > 0 && <div className="mt-2"><Stars value={product.rating} count={product.review_count} /></div>}
       <div className="mt-2 flex items-baseline gap-2">
         <span className="text-lg font-bold text-forest">{money(product.price)}</span>
         {pct > 0 && <span className="text-xs text-ink/50 line-through">{money(product.compare_at_price!)}</span>}

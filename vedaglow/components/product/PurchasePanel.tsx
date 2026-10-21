@@ -24,8 +24,8 @@ export default function PurchasePanel() {
     <div className="min-w-0">
       {product.brand && <p className="text-sm text-ink/60">Brand: <span className="font-medium text-ink/80">{product.brand}</span></p>}
       <h1 className="mt-1 font-display text-4xl font-semibold leading-tight text-forest sm:text-5xl">{product.name}</h1>
-      <div className="mt-3 flex items-center gap-3"><Stars value={product.rating} /><span className="font-semibold">{product.rating.toFixed(1)}</span>
-        <a href="#reviews" className="text-sm text-forest underline-offset-4 hover:underline">{product.review_count} Reviews</a></div>
+      <div className="mt-3 flex items-center gap-3">{product.review_count > 0 ? <><Stars value={product.rating} /><span className="font-semibold">{product.rating.toFixed(1)}</span>
+        <a href="#reviews" className="text-sm text-forest underline-offset-4 hover:underline">{product.review_count} Review{product.review_count === 1 ? "" : "s"}</a></> : <a href="#reviews" className="text-sm text-forest underline-offset-4 hover:underline">No reviews yet. Be the first to review</a>}</div>
       <div className="mt-5 flex flex-wrap items-baseline gap-3">
         <span className="text-4xl font-bold text-forest">{money(price)}</span>
         {pct > 0 && <><span className="text-lg text-ink/50 line-through">{money(compare!)}</span><span className="rounded-md bg-red-700 px-2.5 py-1 text-xs font-bold text-white">SAVE {pct}%</span></>}
