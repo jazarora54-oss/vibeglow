@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { serverClient } from "@/lib/supabase/server";
 import { card, STATUS_STYLE } from "@/components/admin/ui";
-import { money } from "@/lib/format";
+import { money, fmtDateTime } from "@/lib/format";
 import { computeStats, resolveRange, TZ, type OrderRow, type ProductRow } from "@/lib/adminStats";
 export const dynamic = "force-dynamic";
 const LIMIT = 5000;
 const PRESETS: [string, string][] = [["today", "Today"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["month", "This month"]];
-const when = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: TZ, dateStyle: "medium", timeStyle: "short" });
+const when = (iso: string) => fmtDateTime(iso);
 export default async function Dashboard({ searchParams }: { searchParams: { range?: string; from?: string; to?: string } }) {
   const sb = serverClient(); const range = resolveRange(searchParams);
   const pick = (testCol: boolean) => sb.from("orders").select(`id,created_at,status,payment_status,total,customer_name,${testCol ? "is_test," : ""}summary:data->summary,items:data->items`).gte("created_at", range.from.toISOString()).lt("created_at", range.to.toISOString()).order("created_at", { ascending: false }).limit(LIMIT);

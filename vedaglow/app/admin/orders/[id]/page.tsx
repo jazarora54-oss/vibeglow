@@ -1,3 +1,4 @@
+import { fmtDateTime } from "@/lib/format";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
@@ -18,7 +19,7 @@ export default async function Page({ params }: { params: { id: string } }) {
   const o = data.data as TemporaryOrder; const s = o.summary;
   const parcel = buildParcel(o.items.map(lineFromOrderItem)); const originOk = Boolean(shipFromOf(await getSiteSettings())); const a = o.checkout.shipping_address;
   return (<div className="space-y-5"><Link href="/admin/orders" className="text-sm font-semibold text-forest underline">← All orders</Link>
-    <h1 className="font-display text-4xl font-semibold text-forest">{data.id}</h1><p className="text-sm text-ink/60">Placed {new Date(data.created_at).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })}</p>
+    <h1 className="font-display text-4xl font-semibold text-forest">{data.id}</h1><p className="text-sm text-ink/60">Placed {fmtDateTime(data.created_at, true)}</p>
     <OrderTestToggle id={data.id} isTest={Boolean(data.is_test)} />
     <div className="grid items-start gap-5 lg:grid-cols-[1fr_340px]">
       <div className="space-y-5">

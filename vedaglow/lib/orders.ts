@@ -1,10 +1,11 @@
+import { ymdStore } from "@/lib/format";
 import type { CartItem, CheckoutData, Coupon, Deal, ShippingOption, TemporaryOrder } from "@/types";
 import { calculateSummary } from "@/lib/cart/cartCalculations";
 import { DEFAULT_HANDLING_DAYS, deliveryRange, toShippingMethod } from "@/lib/shipping/rules";
 const KEY = "vedaglow:orders:v1";
 const read = (): TemporaryOrder[] => { try { return JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch { return []; } };
 function newOrderId() {
-  const d = new Date(); const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const ymd = ymdStore();
   return `VDG-${ymd}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 /** Client-side temporary order (localStorage), used only while the database is not connected. Never stores payment details. */

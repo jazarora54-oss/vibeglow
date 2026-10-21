@@ -17,6 +17,7 @@ import { adminNewOrder, orderConfirmation, welcomeEmail } from "@/lib/emailTempl
 import { siteUrl } from "@/lib/site";
 import { emailConfigured, sendEmail } from "@/lib/email";
 import { rateLimitOk } from "@/lib/rateLimit";
+import { ymdStore } from "@/lib/format";
 
 /** Coupon check. Database coupons when Supabase is configured, otherwise the demo coupons. */
 export async function lookupCoupon(code: string): Promise<Coupon | null> {
@@ -32,7 +33,7 @@ export async function lookupCoupon(code: string): Promise<Coupon | null> {
 export type SubmitResult = { status: "ok"; order: TemporaryOrder } | { status: "error"; message: string } | { status: "local" };
 type Line = { product_id: string; variant_id?: string; quantity: number };
 const newId = () => {
-  const d = new Date(); const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const ymd = ymdStore();
   const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = ""; for (let i = 0; i < 5; i++) s += abc[Math.floor(Math.random() * abc.length)];
   return `VDG-${ymd}-${s}`;
 };

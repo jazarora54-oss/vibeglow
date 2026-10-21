@@ -1,4 +1,5 @@
 "use client";
+import { fmtDateTime } from "@/lib/format";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { buyLabel, getLabelRates, saveTracking } from "@/app/admin/actions";
@@ -42,7 +43,7 @@ export default function OrderShipping({ orderId, charged, chargedName, paid, par
       <p>Tracking: {label.tracking_url ? <a href={label.tracking_url} target="_blank" rel="noopener noreferrer" className="font-semibold underline">{label.tracking_number}</a> : <b>{label.tracking_number}</b>}</p>
       {label.label_url && <p><a href={label.label_url} target="_blank" rel="noopener noreferrer" className={`${btn} inline-block`}>Open / print label (PDF)</a></p>}
       {diff !== null && <p className="text-ink/70">You paid the carrier {money(label.label_cost!)}. {diff >= 0 ? `Shipping profit: ${money(diff)}.` : `Shipping cost you ${money(-diff)} more than the customer paid.`}</p>}
-      {label.shipped_at && <p className="text-xs text-ink/50">{new Date(label.shipped_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</p>}
+      {label.shipped_at && <p className="text-xs text-ink/50">{fmtDateTime(label.shipped_at)}</p>}
     </div> : <>
       <div className="rounded-xl border border-forest/10 p-4">
         <h3 className="mb-1 font-semibold text-forest">Compare prices &amp; buy a label</h3>
