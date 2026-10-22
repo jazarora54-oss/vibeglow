@@ -15,12 +15,22 @@ import { shipConfigOf } from "@/lib/shipping/settings";
 import { getActiveDeals } from "@/lib/data/deals";
 import { getStoreCategories } from "@/lib/data/categories";
 import PromoPopup from "@/components/layout/PromoPopup";
+import { themeCss } from "@/lib/theme";
+import GoogleAnalytics from "@/components/GoogleAnalytics";
+import { gaId, ldJson, organizationLd, verifyToken, websiteLd } from "@/lib/seo";
 const display = Cormorant_Garamond({ subsets: ["latin"], weight: ["500", "600", "700"], style: ["normal", "italic"], variable: "--font-display" });
 const sans = Jost({ subsets: ["latin"], variable: "--font-sans" });
-export const metadata: Metadata = { metadataBase: new URL(siteUrl()), openGraph: { siteName: "VEDAGLOW", type: "website" }, title: "VEDAGLOW – Ancient Wisdom. Modern Glow.", description: "Pure, natural & effective beauty and wellness products for your daily care." };
+export async function generateMetadata(): Promise<Metadata> {
+  const v = verifyToken((await getSiteSettings()).google_verify);
+  return { ...metadata, ...(v ? { verification: { google: v } } : {}) };
+}
+const metadata: Metadata = { metadataBase: new URL(siteUrl()), openGraph: { siteName: "VEDAGLOW", type: "website" }, title: "VEDAGLOW – Ancient Wisdom. Modern Glow.", description: "Pure, natural & effective beauty and wellness products for your daily care." };
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const [settings, deals, cats] = await Promise.all([getSiteSettings(), getActiveDeals(), getStoreCategories()]); const shipCfg = shipConfigOf(settings);
   return (<html lang="en" className={`${display.variable} ${sans.variable}`}><body>
-    <CartProvider shipCfg={shipCfg} deals={deals}><Shell top={<><AnnouncementBar /><Header categories={cats.map(c => ({ slug: c.slug, name: c.name }))} /></>} bottom={<><Footer /><AIChatButton /><MiniCart /><Toast /><PromoPopup enabled={settings.popup_enabled} title={settings.popup_title} message={settings.popup_message} code={settings.popup_code} buttonText={settings.popup_button_text} buttonLink={settings.popup_button_link} delay={settings.popup_delay} /></>}>{children}</Shell></CartProvider>
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson([organizationLd(settings, siteUrl()), websiteLd(settings, siteUrl())]) }} />
+    <GoogleAnalytics id={gaId(settings.ga_id)} />
+    {themeCss(settings) && <style dangerouslySetInnerHTML={{ __html: themeCss(settings) }} />}
+    <CartProvider shipCfg={shipCfg} deals={deals}><Shell top={<><AnnouncementBar /><Header categories={cats.map(c => ({ slug: c.slug, name: c.name }))} logo={{ url: settings.logo_url, alt: settings.logo_alt, size: settings.logo_size }} /></>} bottom={<><Footer /><AIChatButton /><MiniCart /><Toast /><PromoPopup enabled={settings.popup_enabled} title={settings.popup_title} message={settings.popup_message} code={settings.popup_code} buttonText={settings.popup_button_text} buttonLink={settings.popup_button_link} delay={settings.popup_delay} /></>}>{children}</Shell></CartProvider>
   </body></html>);
 }

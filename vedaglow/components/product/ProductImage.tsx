@@ -1,8 +1,8 @@
 import type { Product } from "@/types";
 // Renders the real image when product.images[0] exists (Supabase Storage later); otherwise a branded packshot.
-export default function ProductImage({ product, className = "" }: { product: Pick<Product, "images" | "visual" | "name">; className?: string }) {
+export default function ProductImage({ product, className = "", eager = false }: { product: Pick<Product, "images" | "visual" | "name">; className?: string; eager?: boolean }) {
   const src = product.images[0];
-  if (src) return <img src={src} alt={product.name} className={`object-contain ${className}`} />;
+  if (src) return <img src={src} alt={product.name} loading={eager ? "eager" : "lazy"} decoding="async" className={`object-contain ${className}`} />;
   const { kind, color, label } = product.visual;
   const cap = "#B8872B";
   return (

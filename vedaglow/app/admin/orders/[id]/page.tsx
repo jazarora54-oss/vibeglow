@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
 import OrderStatusForm from "@/components/admin/OrderStatusForm";
 import OrderShipping from "@/components/admin/OrderShipping";
+import OrderRefund from "@/components/admin/OrderRefund";
 import OrderTestToggle from "@/components/admin/OrderTestToggle";
 import { getSiteSettings } from "@/lib/data/site";
 import { shipFromOf } from "@/lib/shipping/settings";
@@ -31,6 +32,6 @@ export default async function Page({ params }: { params: { id: string } }) {
             label={{ carrier: data.carrier ?? undefined, tracking_number: data.tracking_number ?? undefined, tracking_url: data.tracking_url ?? undefined, label_url: data.label_url ?? undefined, label_cost: data.label_cost != null ? Number(data.label_cost) : undefined, shipped_at: data.shipped_at ?? undefined }} /></section>
         <section className={`${card} grid gap-5 sm:grid-cols-2`}><div><h2 className="mb-2 font-display text-2xl font-semibold text-forest">Ship to</h2><Addr a={o.checkout.shipping_address} /><p className="mt-2 text-sm">{o.checkout.contact.email}<br />{o.checkout.contact.phone}</p></div><div><h2 className="mb-2 font-display text-2xl font-semibold text-forest">Billing</h2><Addr a={o.checkout.billing_address} /></div></section>
       </div>
-      <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Manage</h2><OrderStatusForm key={`${data.status}|${data.tracking_info ?? ""}`} id={data.id} status={data.status} payment={data.payment_status} notes={data.notes ?? ""} tracking={data.tracking_info ?? ""} /></section>
+      <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Manage</h2><OrderStatusForm key={`${data.status}|${data.tracking_info ?? ""}`} id={data.id} status={data.status} payment={data.payment_status} notes={data.notes ?? ""} tracking={data.tracking_info ?? ""} />{o.payment?.payment_intent && data.payment_status === "paid" && <OrderRefund id={data.id} amount={money(s.total)} />}{o.payment?.paid_at && <p className="mt-3 text-xs text-ink/50">Paid by card on {fmtDateTime(o.payment.paid_at, true)} (Stripe {o.payment.payment_intent}).</p>}</section>
     </div></div>);
 }

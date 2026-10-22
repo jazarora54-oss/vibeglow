@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ShopPage from "@/components/shop/ShopPage";
 import { getCategoryBySlug } from "@/lib/data/categories";
+import { siteUrl } from "@/lib/site";
+import { breadcrumbLd, ldJson } from "@/lib/seo";
 export const dynamic = "force-dynamic";
 type Props = { params: { slug: string }; searchParams: Record<string, string | string[] | undefined> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -12,5 +14,5 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function Page({ params, searchParams }: Props) {
   const cat = await getCategoryBySlug(params.slug);
   if (!cat) notFound();
-  return <ShopPage title={cat.name} subtitle={cat.blurb || `Explore our ${cat.name.toLowerCase()} products.`} path={`/category/${cat.slug}`} crumbs={[{ label: "Shop", href: "/shop" }, { label: cat.name }]} searchParams={searchParams} lock={{ category: cat.slug }} />;
+  return <><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, { name: cat.name }])) }} /><ShopPage title={cat.name} subtitle={cat.blurb || `Explore our ${cat.name.toLowerCase()} products.`} path={`/category/${cat.slug}`} crumbs={[{ label: "Shop", href: "/shop" }, { label: cat.name }]} searchParams={searchParams} lock={{ category: cat.slug }} /></>;
 }

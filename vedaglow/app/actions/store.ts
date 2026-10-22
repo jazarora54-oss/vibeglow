@@ -16,6 +16,7 @@ import { validateAddress, validateContact } from "@/lib/checkout/validation";
 import { adminNewOrder, orderConfirmation, welcomeEmail } from "@/lib/emailTemplates";
 import { siteUrl } from "@/lib/site";
 import { emailConfigured, sendEmail } from "@/lib/email";
+import { stripeConfigured } from "@/lib/payments/stripe";
 import { rateLimitOk } from "@/lib/rateLimit";
 import { ymdStore } from "@/lib/format";
 
@@ -91,7 +92,7 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
   const detail = detailFor(q, opt); const eta = deliveryRange(detail.handling_days, opt.days_min, opt.days_max);
 
   for (let attempt = 0; attempt < 4; attempt++) {
-    const order: TemporaryOrder = { id: newId(), created_at: new Date().toISOString(), status: "pending-payment", items, summary, checkout: { ...co, payment_method: String(co.payment_method ?? "").slice(0, 60) }, shipping_method: method, estimated_delivery: eta, shipping_detail: detail, ...(idem ? { idem } : {}) };
+    const order: TemporaryOrder = { id: newId(), created_at: new Date().toISOString(), status: "pending-payment", items, summary, checkout: { ...co, payment_method: stripeConfigured() ? "Card (Stripe)" : String(co.payment_method ?? "").slice(0, 60) }, shipping_method: method, estimated_delivery: eta, shipping_detail: detail, ...(idem ? { idem } : {}) };
     const { error: e } = await db.from("orders").insert({ id: order.id, status: "pending", payment_status: "unpaid", email: co.contact.email.trim(), phone: co.contact.phone.trim(), customer_name: `${co.shipping_address.first_name} ${co.shipping_address.last_name}`.trim(), total: summary.total, data: order });
     if (e?.code === "23505") {
       if (idem) { const { data: prev } = await db.from("orders").select("data").eq("data->>idem", idem).maybeSingle(); if (prev?.data) return { status: "ok", order: prev.data as TemporaryOrder }; } // two clicks at once: the other one won
@@ -106,7 +107,7 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
     }
     if (summary.coupon_code) { const { data: c } = await db.from("coupons").select("used_count").eq("code", summary.coupon_code).maybeSingle(); if (c) await db.from("coupons").update({ used_count: (c.used_count ?? 0) + 1 }).eq("code", summary.coupon_code); }
     // Emails never block or break an order: failures are only logged.
-    if (emailConfigured()) {
+    if (emailConfigured() && !stripeConfigured()) { // with card payment the emails go out when Stripe confirms the payment
       try {
         const st = await getSiteSettings(); const brand = { store_name: st.store_name, email: st.email };
         const mc = orderConfirmation(brand, order); const notify = process.env.ORDER_NOTIFY_EMAIL || st.email; const ma = adminNewOrder(brand, order);

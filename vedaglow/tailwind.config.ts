@@ -1,11 +1,13 @@
 import type { Config } from "tailwindcss";
+// Colours are CSS variables (see app/globals.css). admin -> Brand & Logo can override them; the opacity forms like bg-forest/10 keep working.
+const c = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: { extend: {
     colors: {
-      forest: { DEFAULT: "#0F3D26", 700: "#14502F", 500: "#1E6B3F", 100: "#E4EFE6" },
-      gold: { DEFAULT: "#B8872B", light: "#D9B35C", dark: "#8A6420" },
-      cream: { DEFAULT: "#FBF8F1", dark: "#F3EDDF" },
+      forest: { DEFAULT: c("forest"), 700: c("forest-700"), 500: c("forest-500"), 100: c("forest-100") },
+      gold: { DEFAULT: c("gold"), light: c("gold-light"), dark: c("gold-dark") },
+      cream: { DEFAULT: c("cream"), dark: c("cream-dark") },
       ink: "#1F2A22",
     },
     fontFamily: { display: ["var(--font-display)", "Georgia", "serif"], sans: ["var(--font-sans)", "system-ui", "sans-serif"] },

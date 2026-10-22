@@ -2,14 +2,14 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
+import SiteLogo, { type LogoProps } from "./SiteLogo";
 import { Search, User, Heart, ShoppingCart, Menu, X } from "lucide-react";
 import SearchBox from "./SearchBox";
 import Navigation, { navItemsFrom, type NavCat } from "./Navigation";
 import { useCart } from "@/components/CartProvider";
 import { money } from "@/lib/format";
 const Badge = ({ n }: { n: number }) => n > 0 ? <span className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-forest text-[11px] font-bold text-white">{n}</span> : null;
-export default function Header({ categories = [] }: { categories?: NavCat[] }) {
+export default function Header({ categories = [], logo }: { categories?: NavCat[]; logo?: LogoProps }) {
   const navItems = navItemsFrom(categories);
   const [open, setOpen] = useState(false); const [q, setQ] = useState(false);
   const { count, subtotal, wishlist, setMiniOpen } = useCart(); const path = usePathname(); const onCartPage = path === "/cart" || path === "/checkout";
@@ -17,7 +17,7 @@ export default function Header({ categories = [] }: { categories?: NavCat[] }) {
     <header className="sticky top-0 z-40 bg-cream shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2 sm:px-6 lg:gap-8">
         <button className="lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu"><Menu /></button>
-        <Link href="/" aria-label="VEDAGLOW home" className="mx-auto shrink-0 lg:mx-0"><Image src="/logo.png" alt="VEDAGLOW – Ancient Wisdom. Modern Glow." width={1024} height={1024} priority className="h-16 w-auto mix-blend-multiply sm:h-20" /></Link>
+        <Link href="/" aria-label="VEDAGLOW home" className="mx-auto shrink-0 lg:mx-0"><SiteLogo {...logo} /></Link>
         <SearchBox className="hidden flex-1 lg:block" />
         <div className="flex items-center gap-4 sm:gap-6">
           <button className="lg:hidden" onClick={() => setQ(!q)} aria-label="Search"><Search size={22} /></button>

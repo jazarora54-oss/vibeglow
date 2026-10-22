@@ -10,13 +10,14 @@ import { getShippingQuote } from "@/app/actions/shipping";
 import { cartIssues, getLiveStock } from "@/lib/cart/validate";
 import { createOrder, storeOrderLocally } from "@/lib/orders";
 import { submitOrder } from "@/app/actions/store";
+import { startPayment } from "@/app/actions/payments";
 import { emptyAddress, validateAddress, validateContact, type Errors } from "@/lib/checkout/validation";
 import type { Address, CustomerInformation, ShippingOption } from "@/types";
-import AddressForm from "./AddressForm"; import CheckoutSteps from "./CheckoutSteps"; import CheckoutSummary from "./CheckoutSummary"; import ContactForm from "./ContactForm"; import DeliveryMethod, { type QuoteState } from "./DeliveryMethod"; import PaymentPlaceholder from "./PaymentPlaceholder";
+import AddressForm from "./AddressForm"; import CheckoutSteps from "./CheckoutSteps"; import CheckoutSummary from "./CheckoutSummary"; import ContactForm from "./ContactForm"; import DeliveryMethod, { type QuoteState } from "./DeliveryMethod"; import PaymentPlaceholder from "./PaymentPlaceholder"; import StripePanel from "./StripePanel";
 const prefixErr = (e: Errors, p: string): Errors => Object.fromEntries(Object.entries(e).map(([k, v]) => [`${p}${k}`, v]));
 const DRAFT = "vedaglow:checkout:v1"; // typed contact + address only (never payment data); lives in this tab until the order is placed
 const strip = (e: Errors, p: string): Errors => Object.fromEntries(Object.entries(e).filter(([k]) => k.startsWith(p)).map(([k, v]) => [k.slice(p.length), v]));
-export default function CheckoutView() {
+export default function CheckoutView({ payOnline = false }: { payOnline?: boolean }) {
   const { items, ready, coupon, syncStock, clearCart, notify, shipCfg, deals } = useCart(); const router = useRouter(); const idemRef = useRef<string>(""); // one key per checkout visit: sending it twice can only ever create one order
   if (!idemRef.current) idemRef.current = (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`).replace(/[^A-Za-z0-9_-]/g, "");
   const [contact, setContact] = useState<CustomerInformation>({ email: "", phone: "" });
@@ -28,6 +29,7 @@ export default function CheckoutView() {
       if (d && typeof d === "object") { if (d.contact) setContact(c => ({ ...c, ...d.contact })); if (d.ship) setShip({ ...emptyAddress(), ...d.ship }); if (d.bill) setBill({ ...emptyAddress(), ...d.bill }); if (typeof d.same === "boolean") setSame(d.same); } } catch { /* ignore */ }
     setRestored(true);
   }, []);
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("cancelled") === "1") setFormMsg("Payment was cancelled. Nothing was charged. Your cart is still here: press the button to try again."); }, []);
   useEffect(() => { if (!restored) return; try { sessionStorage.setItem(DRAFT, JSON.stringify({ contact, ship, bill, same })); } catch { /* ignore */ } }, [restored, contact, ship, bill, same]);
   useEffect(() => { if (ready && items.length) getLiveStock(items).then(syncStock); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [ready]);
   // Shipping choices come from the server. They are asked for again whenever the cart or the delivery address changes.
@@ -68,7 +70,14 @@ export default function CheckoutView() {
     try {
       const r = await submitOrder({ items: fresh.map(i => ({ product_id: i.product_id, variant_id: i.variant_id, quantity: i.quantity })), checkout, coupon_code: coupon?.code, expected_shipping: chosen.price, expected_deal_discount: summary.deal_discount ?? 0, idem: idemRef.current });
       if (r.status === "error") { setPlacing(false); setFormMsg(r.message); setNonce(n => n + 1); router.refresh(); /* reloads the latest sales */ return; }
-      if (r.status === "ok") order = storeOrderLocally(r.order);
+      if (r.status === "ok") {
+        order = storeOrderLocally(r.order);
+        if (payOnline) { // card payment: the customer pays on Stripe's own page; the cart is cleared on the confirmation page once Stripe confirms
+          const pr = await startPayment(r.order.id, contact.email);
+          if (!pr.ok || !pr.url) { setPlacing(false); setFormMsg(`${pr.message ?? "We could not open the payment page."} Your order is saved: press the button again to retry.`); return; }
+          window.location.href = pr.url; return;
+        }
+      }
     } catch { setPlacing(false); setFormMsg("We couldn't place your order. Please check your connection and try again."); return; }
     if (!order) order = createOrder(fresh, checkout, coupon, chosen, deals); // backend not connected yet: demo order on this device
     try { sessionStorage.removeItem(DRAFT); } catch { /* ignore */ }
@@ -86,13 +95,13 @@ export default function CheckoutView() {
             <label className="mt-5 flex items-center gap-2 text-sm"><input type="checkbox" checked={same} onChange={e => setSame(e.target.checked)} className="h-4 w-4 accent-forest" />Billing address same as shipping address</label>
             {!same && <div className="mt-5 border-t border-forest/10 pt-5"><h3 className="mb-3 font-semibold">Billing address</h3><AddressForm prefix="bill" value={bill} onChange={setBill} errors={strip(errors, "bill_")} /></div>}</fieldset>
           <DeliveryMethod state={quote} options={options} value={delivery} onChange={setDelivery} handlingDays={handlingDays} />
-          <PaymentPlaceholder value={pay} onChange={setPay} />
+          {payOnline ? <StripePanel /> : <PaymentPlaceholder value={pay} onChange={setPay} />}
         </div>
         <div className="space-y-4 min-w-0"><CheckoutSummary items={items} summary={summary} method={method} />
           <div className="rounded-2xl border border-forest/10 bg-white p-5 shadow-card"><CouponBox idPrefix="co" /></div>
           {(formMsg || issues.length > 0) && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">⚠ {formMsg || issues[0].message}</p>}
-          <button type="submit" disabled={issues.length > 0 || !chosen} className="w-full rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-white hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">PLACE ORDER</button>
-          <p className="text-center text-xs text-ink/50">Demo order: no payment is taken in this step.</p>
+          <button type="submit" disabled={issues.length > 0 || !chosen} className="w-full rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-white hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">{payOnline ? "CONTINUE TO SECURE PAYMENT" : "PLACE ORDER"}</button>
+          <p className="text-center text-xs text-ink/50">{payOnline ? "You will pay on Stripe's secure page. Nothing is charged until you confirm there." : "Demo order: no payment is taken in this step."}</p>
           <Link href="/cart" className="block text-center text-sm font-semibold text-forest underline-offset-4 hover:underline">← Back to cart</Link></div>
       </form>
     </div>

@@ -14,6 +14,12 @@ import { emailConfigured, sendBatch, sendEmail } from "@/lib/email";
 import { offerEmail, statusUpdate } from "@/lib/emailTemplates";
 import { siteUrl } from "@/lib/site";
 import { audit } from "@/lib/audit";
+import { adjustStock } from "@/lib/orderStock";
+import { colorIssues, contrast, isHex } from "@/lib/theme";
+import { safeLink, topbarLines } from "@/lib/topbar";
+import { gaId, verifyToken } from "@/lib/seo";
+import { checkConnection, refundPayment } from "@/lib/payments/stripe";
+import { homeSectionsOf } from "@/lib/data/homeSections";
 import { DEFAULT_CATEGORIES } from "@/lib/data/categories";
 import { validateImport, summarize, tableToRows, TAGS, type Existing, type RowResult } from "@/lib/productImport";
 
@@ -67,13 +73,23 @@ export async function importDemoProducts(): Promise<Res> {
 }
 
 // ---------- Banners ----------
-export interface BannerInput { id?: string; title: string; subtitle: string; button_text: string; button_link: string; image_url: string; sort_order: number; is_active: boolean }
+export interface BannerInput { id?: string; title: string; subtitle: string; button_text: string; button_link: string; image_url: string; sort_order: number; is_active: boolean; starts_at?: string | null; ends_at?: string | null; mobile_image_url?: string | null; image_alt?: string | null }
 export async function saveBanner(b: BannerInput): Promise<Res> {
   try {
     const sb = await admin();
     if (!b.image_url) return { ok: false, message: "Please upload a banner image." };
-    const row = { title: b.title.trim(), subtitle: b.subtitle.trim(), button_text: b.button_text.trim(), button_link: b.button_link.trim() || "/shop", image_url: b.image_url, sort_order: Math.floor(Number(b.sort_order) || 0), is_active: b.is_active };
-    const { error } = b.id ? await sb.from("banners").update(row).eq("id", b.id) : await sb.from("banners").insert(row);
+    const day = (x?: string | null) => (x && /^\d{4}-\d{2}-\d{2}/.test(x) ? x.slice(0, 10) : "");
+    const start = day(b.starts_at), end = day(b.ends_at); if (start && end && end < start) return { ok: false, message: "The end date is before the start date." };
+    const mobile = String(b.mobile_image_url ?? "").trim(); if (mobile && /\.(mp4|webm)(\?|$)/i.test(mobile)) return { ok: false, message: "The phone picture must be an image (not a video)." };
+    const base = { title: b.title.trim(), subtitle: b.subtitle.trim(), button_text: b.button_text.trim(), button_link: b.button_link.trim() || "/shop", image_url: b.image_url, sort_order: Math.floor(Number(b.sort_order) || 0), is_active: b.is_active };
+    const extra = { starts_at: dayStart(start), ends_at: dayEnd(end), mobile_image_url: mobile || null, image_alt: String(b.image_alt ?? "").trim().slice(0, 160) || null };
+    const run = (row: object) => b.id ? sb.from("banners").update(row).eq("id", b.id) : sb.from("banners").insert(row);
+    let { error } = await run({ ...base, ...extra });
+    if (error && /starts_at|ends_at|mobile_image_url|image_alt|schema cache/i.test(error.message)) {
+      // The database does not have the new banner columns yet (migration-8). Plain banners still save; the new options need the migration.
+      if (start || end || mobile || extra.image_alt) return { ok: false, message: "Dates, phone picture and picture description need a one-time database update. Open Supabase -> SQL Editor, run supabase/migration-8.sql, then save again." };
+      ({ error } = await run(base));
+    }
     if (error) return { ok: false, message: error.message }; refresh(); return { ok: true };
   } catch (e) { return fail(e); }
 }
@@ -100,18 +116,6 @@ export async function deleteCoupon(code: string): Promise<Res> {
 // ---------- Orders ----------
 const STATUSES = ["pending", "processing", "shipped", "delivered", "cancelled"], PAYMENTS = ["unpaid", "paid", "refunded"];
 type SB = ReturnType<typeof serverClient>;
-/** sign +1 puts the order's quantities back in stock, -1 takes them out again. */
-async function adjustStock(sb: SB, items: OrderItem[], sign: 1 | -1) {
-  const by = new Map<string, OrderItem[]>(); for (const i of items) by.set(i.product_id, [...(by.get(i.product_id) ?? []), i]);
-  for (const [pid, its] of by) {
-    const { data: p } = await sb.from("products").select("stock,variants").eq("id", pid).maybeSingle(); if (!p) continue;
-    const variants: any[] = Array.isArray(p.variants) ? p.variants : [];
-    if (variants.length) {
-      const nv = variants.map(v => { const q = its.filter(i => i.variant_id === v.id).reduce((n, i) => n + i.quantity, 0); return q ? { ...v, stock: Math.max(0, v.stock + sign * q) } : v; });
-      await sb.from("products").update({ variants: nv, stock: nv.reduce((n, v) => n + v.stock, 0) }).eq("id", pid);
-    } else await sb.from("products").update({ stock: Math.max(0, p.stock + sign * its.reduce((n, i) => n + i.quantity, 0)) }).eq("id", pid);
-  }
-}
 /** Emails the customer about a status change. Never throws; returns a short note for the admin screen ("" when nothing to say). */
 async function notifyCustomer(order: TemporaryOrder, to: string, status: string, tracking: string | null): Promise<string> {
   try {
@@ -319,15 +323,21 @@ export async function deleteDeal(id: string): Promise<Res> {
 }
 
 // ---------- Top bar message + sale pop-up ----------
-export interface PromoInput { topbar_text: string; topbar_show_shipping: boolean; popup_enabled: boolean; popup_title: string; popup_message: string; popup_code: string; popup_button_text: string; popup_button_link: string; popup_delay: number; newsletter_title: string; newsletter_text: string; newsletter_code: string }
+export interface PromoInput { topbar_text: string; topbar_show_shipping: boolean; popup_enabled: boolean; popup_title: string; popup_message: string; popup_code: string; popup_button_text: string; popup_button_link: string; popup_delay: number; newsletter_title: string; newsletter_text: string; newsletter_code: string; topbar_bg?: string; topbar_link?: string; topbar_starts?: string; topbar_ends?: string }
 export async function savePromo(v: PromoInput): Promise<Res> {
   try {
     const sb = await admin(); const t = (x: unknown, n: number) => String(x ?? "").trim().slice(0, n);
     const link = t(v.popup_button_link, 300); if (link && !/^(\/|https?:\/\/)/i.test(link)) return { ok: false, message: "Button link must start with / (like /shop) or https://" };
     const delay = Math.min(60, Math.max(0, Math.round(Number(v.popup_delay) || 0)));
     if (v.popup_enabled && !t(v.popup_title, 80) && !t(v.popup_message, 400)) return { ok: false, message: "Write a title or a message for the pop-up first." };
+    const bg = t(v.topbar_bg, 7); if (bg && !isHex(bg)) return { ok: false, message: "Top bar colour must look like #0F3D26." };
+    if (bg && contrast(bg, "#ffffff") < 3 && contrast(bg, "#1F2A22") < 3) return { ok: false, message: "That top bar colour makes the text hard to read. Pick a clearer colour." };
+    const tl = t(v.topbar_link, 300); if (tl && !safeLink(tl)) return { ok: false, message: "Top bar link must start with / (like /sale) or https://" };
+    const day = (x: unknown) => { const y = t(x, 10); return /^\d{4}-\d{2}-\d{2}$/.test(y) ? y : ""; };
+    const ts = day(v.topbar_starts), te = day(v.topbar_ends); if (ts && te && te < ts) return { ok: false, message: "The top bar end date is before the start date." };
+    const lines = topbarLines(v.topbar_text).map(x => x.slice(0, 120)).join("\n");
     const prev = await getSiteSettings();
-    const data: SiteSettings = { ...prev, topbar_text: t(v.topbar_text, 160), topbar_show_shipping: !!v.topbar_show_shipping, popup_enabled: !!v.popup_enabled, popup_title: t(v.popup_title, 80), popup_message: t(v.popup_message, 400),
+    const data: SiteSettings = { ...prev, topbar_bg: bg, topbar_link: tl, topbar_starts: ts, topbar_ends: te, topbar_text: lines, topbar_show_shipping: !!v.topbar_show_shipping, popup_enabled: !!v.popup_enabled, popup_title: t(v.popup_title, 80), popup_message: t(v.popup_message, 400),
       popup_code: t(v.popup_code, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, ""), popup_button_text: t(v.popup_button_text, 30) || "Shop now", popup_button_link: link || "/shop", popup_delay: delay,
       newsletter_title: t(v.newsletter_title, 80) || "Subscribe & get news and offers.", newsletter_text: t(v.newsletter_text, 200), newsletter_code: t(v.newsletter_code, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, "") };
     const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
@@ -470,3 +480,67 @@ export async function deleteReview(id: string): Promise<Res> {
   try { const sb = await admin(); const { error } = await sb.from("reviews").delete().eq("id", String(id)); if (error) return { ok: false, message: dbMsg(error.message) }; await audit(sb, "review.delete", String(id)); refresh(); revalidatePath("/admin/reviews"); return { ok: true }; } catch (e) { return fail(e); }
 }
 
+
+// ---------- Brand & Logo ----------
+export interface BrandInput { logo_url: string; logo_alt: string; logo_size: "s" | "m" | "l"; color_primary: string; color_accent: string; color_bg: string }
+export async function saveBrand(v: BrandInput): Promise<Res> {
+  try {
+    const sb = await admin(); const t = (x: unknown, n: number) => String(x ?? "").trim().slice(0, n);
+    const logo = t(v.logo_url, 600); if (logo && !/^https:\/\//i.test(logo)) return { ok: false, message: "The logo must be an uploaded picture (or an https:// address)." };
+    const cols = [t(v.color_primary, 7), t(v.color_accent, 7), t(v.color_bg, 7)];
+    for (const c of cols) if (c && !isHex(c)) return { ok: false, message: "Colours must look like #0F3D26." };
+    const bad = colorIssues(cols[0], cols[1], cols[2]).find(i => i.level === "block"); if (bad) return { ok: false, message: bad.text };
+    const size = v.logo_size === "s" || v.logo_size === "l" ? v.logo_size : "m";
+    const prev = await getSiteSettings();
+    const data: SiteSettings = { ...prev, logo_url: logo, logo_alt: t(v.logo_alt, 120), logo_size: size, color_primary: cols[0], color_accent: cols[1], color_bg: cols[2] };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
+    if (error) return { ok: false, message: error.message };
+    await audit(sb, "brand.update", `Brand saved (${logo ? "custom logo" : "original logo"}, ${cols.some(Boolean) ? "custom colours" : "original colours"})`); refresh(); revalidatePath("/admin/brand"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Homepage sections ----------
+export async function saveHomepage(rows: { key: string; on: boolean; title?: string }[]): Promise<Res> {
+  try {
+    const sb = await admin();
+    const list = homeSectionsOf({ home_sections: Array.isArray(rows) ? rows : [] });
+    if (!list.some(r => r.on)) return { ok: false, message: "Keep at least one section switched on." };
+    const prev = await getSiteSettings();
+    const data: SiteSettings = { ...prev, home_sections: list };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
+    if (error) return { ok: false, message: error.message };
+    await audit(sb, "homepage.update", list.map(r => (r.on ? "" : "-") + r.key).join(", ")); refresh(); revalidatePath("/admin/homepage"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Google & Analytics ----------
+export async function saveGoogle(v: { ga_id: string; google_verify: string }): Promise<Res> {
+  try {
+    const sb = await admin(); const rawGa = String(v.ga_id ?? "").trim(), rawVer = String(v.google_verify ?? "").trim();
+    const ga = gaId(rawGa); if (rawGa && !ga) return { ok: false, message: "The Analytics ID looks like G-ABC123XYZ (starts with G-). Copy it from Google Analytics -> Admin -> Data streams." };
+    const ver = verifyToken(rawVer); if (rawVer && !ver) return { ok: false, message: "That verification code does not look right. Paste only the code (or the whole meta tag) from Google Search Console." };
+    const prev = await getSiteSettings(); const data: SiteSettings = { ...prev, ga_id: ga, google_verify: ver };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
+    if (error) return { ok: false, message: error.message };
+    await audit(sb, "google.update", `Analytics ${ga ? "on" : "off"}, Search Console ${ver ? "set" : "not set"}`); refresh(); revalidatePath("/admin/google"); return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Card payments (Stripe) ----------
+export async function testStripe(): Promise<Res> { try { await admin(); const r = await checkConnection(); return { ok: r.ok, message: r.message }; } catch (e) { return fail(e); } }
+/** Gives the customer their money back (full amount) through Stripe, then marks the order Refunded. Stock is NOT touched: cancel the order for that. */
+export async function refundOrder(id: string): Promise<Res> {
+  try {
+    const sb = await admin();
+    const { data: row, error } = await sb.from("orders").select("payment_status,data").eq("id", id).maybeSingle();
+    if (error) return { ok: false, message: dbMsg(error.message) }; if (!row) return { ok: false, message: "Order not found." };
+    if (row.payment_status !== "paid") return { ok: false, message: "Only a paid order can be refunded." };
+    const o = row.data as TemporaryOrder; const pi = o.payment?.payment_intent;
+    if (!pi) return { ok: false, message: "This order was not paid through Stripe here. Refund it where you took the money, then set Payment to Refunded." };
+    const r = await refundPayment(pi, id); if (!r.ok) return { ok: false, message: r.message ?? "Stripe did not accept the refund." };
+    const { error: e2 } = await sb.from("orders").update({ payment_status: "refunded", data: { ...o, payment: { ...o.payment!, refunded_at: new Date().toISOString() } } }).eq("id", id);
+    if (e2) return { ok: false, message: "Stripe refunded the money, but saving failed: set Payment to Refunded by hand. " + dbMsg(e2.message) };
+    await audit(sb, "order.refund", `${id}: full refund $${o.summary.total.toFixed(2)}`); revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${id}`); revalidatePath("/admin");
+    return { ok: true, message: "Refunded. The customer sees it in 5-10 days." };
+  } catch (e) { return fail(e); }
+}

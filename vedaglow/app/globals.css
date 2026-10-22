@@ -1,4 +1,6 @@
 @tailwind base; @tailwind components; @tailwind utilities;
+/* Original VEDAGLOW colours as "R G B". admin -> Brand & Logo can override these (see lib/theme.ts). */
+:root { --forest: 15 61 38; --forest-700: 20 80 47; --forest-500: 30 107 63; --forest-100: 228 239 230; --gold: 184 135 43; --gold-light: 217 179 92; --gold-dark: 138 100 32; --cream: 251 248 241; --cream-dark: 243 237 223; }
 @layer base {
   body { @apply bg-cream font-sans text-ink antialiased; }
   :focus-visible { @apply outline-2 outline-offset-2 outline-gold; outline-style: solid; }

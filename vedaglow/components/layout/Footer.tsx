@@ -1,5 +1,5 @@
 import Link from "next/link";
-import Image from "next/image";
+import SiteLogo from "./SiteLogo";
 import { Instagram, Facebook, Youtube, Music2, Mail, Phone, MapPin, MessageCircle } from "lucide-react";
 import { getSiteSettings } from "@/lib/data/site";
 import { getStoreCategories } from "@/lib/data/categories";
@@ -16,7 +16,7 @@ export default async function Footer() {
   const wa = s.whatsapp.replace(/[^\d]/g, "");
   return (
     <footer className="bg-forest text-white/80"><div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-2 lg:grid-cols-6">
-      <div className="lg:col-span-2"><div className="inline-block rounded-xl bg-cream p-2"><Image src="/logo.png" alt={s.store_name} width={1024} height={1024} className="h-24 w-auto mix-blend-multiply" /></div>
+      <div className="lg:col-span-2"><div className="inline-block rounded-xl bg-cream p-2"><SiteLogo url={s.logo_url} alt={s.logo_alt || s.store_name} footer /></div>
         <p className="mt-4 font-display text-xl italic text-gold-light">{s.tagline}</p>
         <ul className="mt-4 space-y-2 text-sm">
           {s.email && <li><a href={`mailto:${s.email}`} className="flex items-center gap-2 hover:text-gold-light"><Mail size={16} />{s.email}</a></li>}

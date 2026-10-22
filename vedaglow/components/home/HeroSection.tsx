@@ -25,7 +25,7 @@ export default function HeroSection({ products }: { products: Product[] }) {
         <div className="relative mx-auto flex w-full max-w-xl items-end justify-center gap-1 pt-6 sm:gap-3" aria-hidden="true">
           <div className="absolute inset-x-6 bottom-0 h-24 rounded-[50%] bg-forest/10 blur-xl" />
           <div className="absolute left-1/2 top-2 h-64 w-64 -translate-x-1/2 rounded-full border-[3px] border-gold/50 sm:h-80 sm:w-80" />
-          {products.slice(0, 4).map((p, i) => <ProductImage key={p.id} product={p} className={`relative w-1/4 ${i % 2 ? "" : "mb-6"} ${i === 1 ? "scale-110" : ""} drop-shadow-xl`} />)}
+          {products.slice(0, 4).map((p, i) => <ProductImage key={p.id} product={p} eager className={`relative w-1/4 ${i % 2 ? "" : "mb-6"} ${i === 1 ? "scale-110" : ""} drop-shadow-xl`} />)}
         </div>
       </div>
     </section>

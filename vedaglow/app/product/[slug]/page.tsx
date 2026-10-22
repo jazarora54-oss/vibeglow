@@ -19,6 +19,7 @@ import ViewTracker from "@/components/product/ViewTracker";
 import OfferSignup from "@/components/product/OfferSignup";
 import ProductReviews from "@/components/product/ProductReviews";
 import ProductSection from "@/components/product/ProductSection";
+import { breadcrumbLd, ldJson } from "@/lib/seo";
 import MobilePurchaseBar from "@/components/product/MobilePurchaseBar";
 type Props = { params: { slug: string } };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -46,6 +47,7 @@ export default async function ProductPage({ params }: Props) {
   return (
     <ProductSelectionProvider product={product}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, ...(cat ? [{ name: cat.name, path: `/category/${cat.slug}` }] : []), { name: product.name }])) }} />
       <div className="pb-24 md:pb-0">
         <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6">
           <nav aria-label="Breadcrumb" className="mb-6 flex flex-wrap items-center gap-1 text-sm text-ink/60">
