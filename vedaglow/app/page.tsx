@@ -8,14 +8,14 @@ import { getCategories } from "@/lib/data/categories";
 import { getBanners } from "@/lib/data/banners";
 import { getProducts, getRelatedProducts } from "@/lib/data/products";
 import { getSiteSettings } from "@/lib/data/site";
-import { homeSectionsOf } from "@/lib/data/homeSections";
+import { countOf, homeSectionsOf } from "@/lib/data/homeSections";
 export default async function Home() {
+  const st = await getSiteSettings(); const order = homeSectionsOf(st); const n = (k: string) => countOf(order, k);
   const [cats, banners, best, fresh, sale, featured] = await Promise.all([
-    getCategories(), getBanners(), getProducts({ tag: "best-seller", limit: 5 }), getProducts({ tag: "new", limit: 4 }),
-    getProducts({ tag: "sale", limit: 4 }), getProducts({ tag: "featured", limit: 4 })]);
-  const st = await getSiteSettings(); const order = homeSectionsOf(st);
+    getCategories(), getBanners(), getProducts({ tag: "best-seller", limit: Math.max(5, n("best")) }), getProducts({ tag: "new", limit: n("new"), newest: true }),
+    getProducts({ tag: "sale", limit: n("sale") }), getProducts({ tag: "featured", limit: n("featured") })]);
   const any = best[0] ?? fresh[0] ?? sale[0] ?? featured[0];
-  const related = any ? await getRelatedProducts(any, 4) : [];
+  const related = any ? await getRelatedProducts(any, n("related")) : [];
   const heroProducts = [best[2], best[4], featured[1] ?? best[0], best[1]].filter((p): p is NonNullable<typeof p> => Boolean(p));
   const T = (key: string, d: string) => order.find(r => r.key === key)?.title || d;
   const block: Record<string, React.ReactNode> = {

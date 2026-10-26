@@ -52,3 +52,19 @@ export function dealHints(items: CartItem[], deals: Deal[] | undefined, now = Da
   }
   return out;
 }
+
+export interface DealNudge { text: string; title: string; need: number; key: string; canAdd: boolean }
+/** Like dealHints, but also says which cart line to top up and whether there is enough stock for it (used by the "add 1 more" pop-up). */
+export function dealNudges(items: CartItem[], deals: Deal[] | undefined, now = Date.now()): DealNudge[] {
+  const out: DealNudge[] = [];
+  for (const d of (deals ?? []).filter(x => x.kind === "buy_get" && dealIsLive(x, now) && x.percent_off > 0 && x.percent_off <= 100)) {
+    const lines = items.filter(i => d.product_ids.length === 0 || d.product_ids.includes(i.product_id));
+    const n = lines.reduce((s, i) => s + i.quantity, 0); const group = d.buy_qty + d.get_qty; const rem = n % group;
+    if (n > 0 && rem >= d.buy_qty) {
+      const need = group - rem; const line = lines[lines.length - 1]; // the item added last
+      const room = line.max_stock === undefined ? need : line.max_stock - line.quantity;
+      out.push({ text: `Add ${need} more to get ${d.get_qty} ${freeOrPct(d.percent_off).toLowerCase()}`, title: dealTitle(d), need, key: `${line.product_id}:${line.variant_id ?? "-"}`, canAdd: room >= need });
+    }
+  }
+  return out;
+}

@@ -15,6 +15,7 @@ import { shipConfigOf } from "@/lib/shipping/settings";
 import { getActiveDeals } from "@/lib/data/deals";
 import { getStoreCategories } from "@/lib/data/categories";
 import PromoPopup from "@/components/layout/PromoPopup";
+import DealNudge from "@/components/cart/DealNudge";
 import { themeCss } from "@/lib/theme";
 import GoogleAnalytics from "@/components/GoogleAnalytics";
 import { gaId, ldJson, organizationLd, verifyToken, websiteLd } from "@/lib/seo";
@@ -31,6 +32,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson([organizationLd(settings, siteUrl()), websiteLd(settings, siteUrl())]) }} />
     <GoogleAnalytics id={gaId(settings.ga_id)} />
     {themeCss(settings) && <style dangerouslySetInnerHTML={{ __html: themeCss(settings) }} />}
-    <CartProvider shipCfg={shipCfg} deals={deals}><Shell top={<><AnnouncementBar /><Header categories={cats.map(c => ({ slug: c.slug, name: c.name }))} logo={{ url: settings.logo_url, alt: settings.logo_alt, size: settings.logo_size }} /></>} bottom={<><Footer /><AIChatButton /><MiniCart /><Toast /><PromoPopup enabled={settings.popup_enabled} title={settings.popup_title} message={settings.popup_message} code={settings.popup_code} buttonText={settings.popup_button_text} buttonLink={settings.popup_button_link} delay={settings.popup_delay} /></>}>{children}</Shell></CartProvider>
+    <CartProvider shipCfg={shipCfg} deals={deals}><Shell top={<><AnnouncementBar /><Header categories={cats.map(c => ({ slug: c.slug, name: c.name }))} logo={{ url: settings.logo_url, alt: settings.logo_alt, size: settings.logo_size }} /></>} bottom={<><Footer /><AIChatButton /><MiniCart /><Toast /><DealNudge /><PromoPopup enabled={settings.popup_enabled} title={settings.popup_title} message={settings.popup_message} code={settings.popup_code} buttonText={settings.popup_button_text} buttonLink={settings.popup_button_link} delay={settings.popup_delay} /></>}>{children}</Shell></CartProvider>
   </body></html>);
 }

@@ -11,7 +11,7 @@ export interface SiteSettings { store_name: string; tagline: string; email: stri
   // Brand (admin -> Brand & Logo). Empty logo/colours = the original VEDAGLOW logo and colours.
   logo_url: string; logo_alt: string; logo_size: "s" | "m" | "l"; color_primary: string; color_accent: string; color_bg: string;
   // Homepage sections in the order shown (admin -> Homepage). Empty = the built-in order, everything on.
-  home_sections: { key: string; on: boolean; title?: string }[];
+  home_sections: { key: string; on: boolean; title?: string; count?: number }[];
   // Google (admin -> Google & Analytics). Empty = off.
   ga_id: string; google_verify: string }
 export const DEFAULT_SETTINGS: SiteSettings = { store_name: "VEDAGLOW", tagline: "Ancient Wisdom. Modern Glow.", email: "", phone: "", whatsapp: "", address: "", hours: "", instagram: "", facebook: "", tiktok: "", youtube: "", free_shipping_over: 49, default_flat_rate: 5.99, ship_name: "", ship_company: "", ship_street1: "", ship_street2: "", ship_city: "", ship_state: "", ship_zip: "", ship_phone: "", topbar_text: "", topbar_show_shipping: true, popup_enabled: false, popup_title: "", popup_message: "", popup_code: "", popup_button_text: "Shop now", popup_button_link: "/shop", popup_delay: 4, newsletter_title: "Subscribe & get news and offers.", newsletter_text: "New arrivals, sales and wellness tips. Unsubscribe any time.", newsletter_code: "", topbar_bg: "", topbar_link: "", topbar_starts: "", topbar_ends: "", logo_url: "", logo_alt: "", logo_size: "m", color_primary: "", color_accent: "", color_bg: "", home_sections: [], ga_id: "", google_verify: "" };

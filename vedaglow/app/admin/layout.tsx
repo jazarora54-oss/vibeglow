@@ -14,7 +14,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!user) return <div className="min-h-screen bg-cream">{children}</div>; // login page
   return (
     <div className="min-h-screen bg-cream text-ink lg:flex">
-      <aside className="bg-forest text-white lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:shrink-0">
+      <aside className="bg-forest text-white lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain">
         <div className="flex items-center justify-between px-5 py-4 lg:block"><p className="font-display text-2xl font-semibold tracking-wide">VEDAGLOW</p><p className="hidden text-xs text-white/60 lg:block">Admin panel</p></div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:block lg:space-y-1 lg:overflow-visible">
           {nav.map(({ href, label, I }) => <Link key={href} href={href} className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-white/10"><I size={18} />{label}</Link>)}

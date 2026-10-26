@@ -53,9 +53,10 @@ async function loadAll(): Promise<Product[]> {
     return withRealStats(data.map(rowToProduct));
   } catch (e) { console.error("Supabase unreachable:", e); return withRealStats(localProducts); }
 }
-export type ProductFilter = { tag?: Product["tags"][number]; category?: string; limit?: number; excludeId?: string };
+export type ProductFilter = { tag?: Product["tags"][number]; category?: string; limit?: number; excludeId?: string; /** newest first, ignoring the "boost" ranking (used for New Arrivals) */ newest?: boolean };
 export async function getProducts(f: ProductFilter = {}): Promise<Product[]> {
   const r = (await loadAll()).filter(p => (!f.tag || p.tags.includes(f.tag)) && (!f.category || p.category === f.category) && p.id !== f.excludeId);
+  if (f.newest) r.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   return f.limit ? r.slice(0, f.limit) : r;
 }
 export async function getProductBySlug(slug: string): Promise<Product | null> { return (await loadAll()).find(p => p.slug === slug) ?? null; }

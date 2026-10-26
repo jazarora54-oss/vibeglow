@@ -500,7 +500,7 @@ export async function saveBrand(v: BrandInput): Promise<Res> {
 }
 
 // ---------- Homepage sections ----------
-export async function saveHomepage(rows: { key: string; on: boolean; title?: string }[]): Promise<Res> {
+export async function saveHomepage(rows: { key: string; on: boolean; title?: string; count?: number }[]): Promise<Res> {
   try {
     const sb = await admin();
     const list = homeSectionsOf({ home_sections: Array.isArray(rows) ? rows : [] });
