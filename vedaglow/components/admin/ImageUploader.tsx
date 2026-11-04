@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Trash2, Upload } from "lucide-react";
 import { browserClient } from "@/lib/supabase/browser";
 import { btn2, inp } from "./ui";
+const ALLOWED_IMAGES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 /** Uploads to Supabase Storage (bucket "media") and returns public URLs. Used by products and banners. */
 export default function ImageUploader({ value, onChange, folder, multiple = true, allowVideo = false }: { value: string[]; onChange: (v: string[]) => void; folder: string; multiple?: boolean; allowVideo?: boolean }) {
   const ref = useRef<HTMLInputElement>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [url, setUrl] = useState("");
@@ -10,10 +11,11 @@ export default function ImageUploader({ value, onChange, folder, multiple = true
     if (!files?.length) return; setBusy(true); setErr(""); const sb = browserClient(); const added: string[] = [];
     for (const f of Array.from(files)) {
       const isVideo = f.type === "video/mp4" || f.type === "video/webm";
-      if (!f.type.startsWith("image/") && !(allowVideo && isVideo)) { setErr(allowVideo ? "Only images, GIFs or MP4/WebM videos are allowed." : "Only image files are allowed."); continue; }
+      // Strict allow-list (SVG is NOT allowed: it can carry scripts). The database bucket enforces the same list again.
+      if (!ALLOWED_IMAGES.includes(f.type) && !(allowVideo && isVideo)) { setErr(allowVideo ? "Only JPG, PNG, WebP, GIF images or MP4/WebM videos are allowed." : "Only JPG, PNG, WebP or GIF images are allowed."); continue; }
       const max = isVideo ? 25 : 5; if (f.size > max * 1024 * 1024) { setErr(`${f.name} is over ${max} MB. Please use a smaller file.`); continue; }
       const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${f.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const { error } = await sb.storage.from("media").upload(path, f, { cacheControl: "31536000", upsert: false });
+      const { error } = await sb.storage.from("media").upload(path, f, { cacheControl: "31536000", upsert: false, contentType: f.type });
       if (error) { setErr(`Upload failed: ${error.message}`); continue; }
       added.push(sb.storage.from("media").getPublicUrl(path).data.publicUrl);
     }
@@ -35,7 +37,7 @@ export default function ImageUploader({ value, onChange, folder, multiple = true
           </div>))}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <input ref={ref} type="file" accept={allowVideo ? "image/*,video/mp4,video/webm" : "image/*"} multiple={multiple} onChange={e => upload(e.target.files)} className="hidden" />
+        <input ref={ref} type="file" accept={allowVideo ? "image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" : "image/jpeg,image/png,image/webp,image/gif"} multiple={multiple} onChange={e => upload(e.target.files)} className="hidden" />
         <button type="button" disabled={busy} onClick={() => ref.current?.click()} className={`${btn2} flex items-center gap-2`}><Upload size={16} />{busy ? "Uploading…" : allowVideo ? "Upload image / GIF / video" : multiple ? "Upload images" : "Upload image"}</button>
         <input value={url} onChange={e => setUrl(e.target.value)} placeholder="…or paste an image URL / /products/… path" className={`${inp} max-w-xs`} />
         <button type="button" onClick={() => { const t = url.trim(); if (t) { onChange(multiple ? [...value, t] : [t]); setUrl(""); } }} className={btn2}>Add</button>

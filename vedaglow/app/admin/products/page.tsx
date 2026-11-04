@@ -6,7 +6,8 @@ import { BulkBar, CsvImport, SelectAll } from "@/components/admin/ProductBulkToo
 import { DEFAULT_CATEGORIES, rowToCategory } from "@/lib/data/categories";
 import { money } from "@/lib/format";
 import type { TemporaryOrder } from "@/types";
-export default async function Page({ searchParams }: { searchParams: { q?: string; category?: string } }) {
+export default async function Page(props: { searchParams: Promise<{ q?: string; category?: string }> }) {
+  const searchParams = await props.searchParams;
   const q = (searchParams.q ?? "").trim().replace(/[%,()]/g, "");
   const sb = serverClient();
   let query = sb.from("products").select("id,slug,name,category,price,stock,is_active,images").order("created_at", { ascending: false });

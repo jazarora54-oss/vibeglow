@@ -21,8 +21,9 @@ import ProductReviews from "@/components/product/ProductReviews";
 import ProductSection from "@/components/product/ProductSection";
 import { breadcrumbLd, ldJson } from "@/lib/seo";
 import MobilePurchaseBar from "@/components/product/MobilePurchaseBar";
-type Props = { params: { slug: string } };
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+type Props = { params: Promise<{ slug: string }> };
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const p = await getProductBySlug(params.slug);
   if (!p) return { title: "Product not found | VEDAGLOW" };
   const title = p.seo_title || `${p.name} | VEDAGLOW`, description = p.seo_description || p.short_description;
@@ -30,7 +31,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     openGraph: { title, description, type: "website", url: `/product/${p.slug}`, images: p.images[0] ? [{ url: p.images[0] }] : undefined },
     twitter: { card: p.images[0] ? "summary_large_image" : "summary", title, description } };
 }
-export default async function ProductPage({ params }: Props) {
+export default async function ProductPage(props: Props) {
+  const params = await props.params;
   const product = await getProductBySlug(params.slug);
   if (!product) notFound();
   const cat = await getCategoryBySlug(product.category);

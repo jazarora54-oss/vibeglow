@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 const LIMIT = 5000;
 const PRESETS: [string, string][] = [["today", "Today"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["month", "This month"]];
 const when = (iso: string) => fmtDateTime(iso);
-export default async function Dashboard({ searchParams }: { searchParams: { range?: string; from?: string; to?: string } }) {
+export default async function Dashboard(props: { searchParams: Promise<{ range?: string; from?: string; to?: string }> }) {
+  const searchParams = await props.searchParams;
   const sb = serverClient(); const range = resolveRange(searchParams);
   const pick = (testCol: boolean) => sb.from("orders").select(`id,created_at,status,payment_status,total,customer_name,${testCol ? "is_test," : ""}summary:data->summary,items:data->items`).gte("created_at", range.from.toISOString()).lt("created_at", range.to.toISOString()).order("created_at", { ascending: false }).limit(LIMIT);
   let ordersRes: any = await pick(true); let testColumn = true;

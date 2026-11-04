@@ -4,7 +4,8 @@ import { serverClient } from "@/lib/supabase/server";
 import { STATUS_STYLE } from "@/components/admin/ui";
 import { money } from "@/lib/format";
 const FILTERS = ["all", "pending", "processing", "shipped", "delivered", "cancelled"];
-export default async function Page({ searchParams }: { searchParams: { status?: string } }) {
+export default async function Page(props: { searchParams: Promise<{ status?: string }> }) {
+  const searchParams = await props.searchParams;
   const f = FILTERS.includes(searchParams.status ?? "") ? searchParams.status! : "all";
   let q = serverClient().from("orders").select("id,created_at,status,payment_status,customer_name,email,total").order("created_at", { ascending: false }).limit(200);
   if (f !== "all") q = q.eq("status", f);

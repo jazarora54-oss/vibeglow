@@ -26,7 +26,7 @@ export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG, deals = 
   const [couponObj, setCouponObj] = useState<Coupon | null>(null);
   const [ready, setReady] = useState(false);
   const [miniOpen, setMiniOpen] = useState(false);
-  const [toast, setToast] = useState<Toast>(null); const timer = useRef<ReturnType<typeof setTimeout>>();
+  const [toast, setToast] = useState<Toast>(null); const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     try {
       const s = JSON.parse(localStorage.getItem(STORE) ?? "null");

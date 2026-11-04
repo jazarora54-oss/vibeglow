@@ -1,6 +1,17 @@
 import type { OrderItem } from "@/types";
 /** sign +1 puts the order's quantities back in stock, -1 takes them out again. */
-export async function adjustStock(sb: any, items: OrderItem[], sign: 1 | -1) {
+export async function adjustStock(sb: any, items: OrderItem[], sign: 1 | -1, strict = false): Promise<boolean> {
+  // Preferred: one atomic database function (rows are locked, so two buyers can never take the same last item).
+  const payload = items.map(i => ({ product_id: i.product_id, variant_id: i.variant_id ?? null, quantity: i.quantity }));
+  const { error } = await sb.rpc("apply_stock", { p_items: payload, p_sign: sign, p_strict: strict });
+  if (!error) return true;
+  if (String(error.message ?? "").includes("insufficient_stock")) return false;
+  const missing = error.code === "PGRST202" || error.code === "42883" || /could not find the function/i.test(String(error.message ?? ""));
+  if (!missing) { console.error("apply_stock failed:", error.message); return false; }
+  await legacyAdjust(sb, items, sign); // migration 9 not run yet: old behaviour so the live shop keeps working
+  return true;
+}
+async function legacyAdjust(sb: any, items: OrderItem[], sign: 1 | -1) {
   const by = new Map<string, OrderItem[]>(); for (const i of items) by.set(i.product_id, [...(by.get(i.product_id) ?? []), i]);
   for (const [pid, its] of by) {
     const { data: p } = await sb.from("products").select("stock,variants").eq("id", pid).maybeSingle(); if (!p) continue;

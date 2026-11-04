@@ -4,11 +4,11 @@ import { cookies } from "next/headers";
 import { SUPABASE_ANON, SUPABASE_URL } from "./config";
 /** Client acting as the signed-in user (admin pages + admin actions). Row Level Security decides what is allowed. */
 export function serverClient() {
-  const store = cookies();
+  // Next 15: cookies() is asynchronous, so the cookie handlers await it (the client itself stays synchronous to create).
   return createServerClient(SUPABASE_URL, SUPABASE_ANON, {
     cookies: {
-      getAll: () => store.getAll(),
-      setAll: list => { try { list.forEach(({ name, value, options }) => store.set(name, value, options)); } catch { /* called from a Server Component */ } },
+      getAll: async () => (await cookies()).getAll(),
+      setAll: async list => { try { const store = await cookies(); list.forEach(({ name, value, options }) => store.set(name, value, options)); } catch { /* called from a Server Component */ } },
     },
   });
 }

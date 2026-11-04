@@ -5,14 +5,16 @@ import { isPageSlug } from "@/lib/data/defaults";
 import { getFaqs, getPage, getSiteSettings } from "@/lib/data/site";
 import { Markdown } from "@/lib/markdown";
 import ContactForm from "@/components/pages/ContactForm";
-type Props = { params: { page: string } };
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+type Props = { params: Promise<{ page: string }> };
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   if (!isPageSlug(params.page)) return {};
   const p = await getPage(params.page);
   return { title: `${p.title} | VEDAGLOW`, description: p.body.replace(/[#*[\]()]/g, "").replace(/\s+/g, " ").trim().slice(0, 155), alternates: { canonical: `/${params.page}` } };
 }
 /** About, Contact, Shipping, Returns, Refunds, Privacy, Terms and FAQ. Text is edited in admin -> Pages / FAQs. */
-export default async function InfoPage({ params }: Props) {
+export default async function InfoPage(props: Props) {
+  const params = await props.params;
   if (!isPageSlug(params.page)) notFound();
   const slug = params.page; const page = await getPage(slug);
   const s = slug === "contact" ? await getSiteSettings() : null;

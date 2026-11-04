@@ -3,7 +3,8 @@ import { serverClient } from "@/lib/supabase/server";
 import ReviewManager, { type ReviewRow } from "@/components/admin/ReviewManager";
 export const dynamic = "force-dynamic";
 const TABS = [["pending", "Waiting for approval"], ["approved", "Approved (public)"], ["rejected", "Rejected"]] as const;
-export default async function Page({ searchParams }: { searchParams: { status?: string } }) {
+export default async function Page(props: { searchParams: Promise<{ status?: string }> }) {
+  const searchParams = await props.searchParams;
   const status = (TABS.map(t => t[0]) as string[]).includes(searchParams.status ?? "") ? searchParams.status! : "pending";
   const sb = serverClient();
   const [{ data, error }, { data: prods }, counts] = await Promise.all([sb.from("reviews").select("*").eq("status", status).order("created_at", { ascending: false }).limit(200), sb.from("products").select("id,name").limit(3000),

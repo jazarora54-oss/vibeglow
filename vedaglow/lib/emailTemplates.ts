@@ -40,6 +40,10 @@ export function offerEmail(b: Brand, p: { name: string; slug: string; kind: "per
     `You are receiving this because you asked for offers on this product at ${esc(b.store_name)}. <a href="${esc(p.unsubscribeUrl)}" style="color:#123d28">Unsubscribe</a>`);
   return { subject: `${off} ${p.name} — just for you`, html, text: `${off} ${p.name}\n${p.message}\nYour code: ${p.code} (valid until ${p.expires}, one use)\n${siteUrl()}/product/${p.slug}\nUnsubscribe: ${p.unsubscribeUrl}` };
 }
+export function confirmSubscriptionEmail(b: Brand, p: { confirmUrl: string }) {
+  const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Please confirm your email</h2><p>Someone (hopefully you) asked to receive news and offers from ${esc(b.store_name)}. Press the button to confirm. If this was not you, just ignore this email and nothing will be sent.</p><p><a href="${esc(p.confirmUrl)}" style="display:inline-block;background:#123d28;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none">Yes, subscribe me</a></p>`, `${helpFooter(b)}`);
+  return { subject: `Please confirm your subscription to ${b.store_name}`, html, text: `Please confirm your subscription to ${b.store_name}: ${p.confirmUrl}\nIf this was not you, ignore this email.` };
+}
 export function welcomeEmail(b: Brand, p: { code: string; unsubscribeUrl: string }) {
   const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Welcome to ${esc(b.store_name)}</h2><p>Thank you for subscribing. We will send you news about new products and offers.</p>${p.code ? `<p style="font-size:14px;color:#666">Your code:</p><p style="font-size:26px;letter-spacing:3px;font-weight:bold;color:#b8862b;margin:4px 0">${esc(p.code)}</p>` : ""}${btn(`${siteUrl()}/shop`, "Start shopping")}`,
     `${helpFooter(b)}<br>You are receiving this because you subscribed at ${esc(b.store_name)}. <a href="${esc(p.unsubscribeUrl)}" style="color:#123d28">Unsubscribe</a>`);

@@ -6,7 +6,7 @@ import { productToRow, slugify, type ProductInput } from "@/lib/data/mappers";
 import { getLocalProducts } from "@/lib/data/products";
 import { DEFAULT_FAQS, DEFAULT_PAGES, isPageSlug, type SiteSettings } from "@/lib/data/defaults";
 import { stateCode, trackingUrl, CARRIERS } from "@/lib/shipping/rules";
-import { getSiteSettings } from "@/lib/data/site";
+import { getSiteSettings, getSettingsWithPrivate, PRIVATE_SETTING_KEYS } from "@/lib/data/site";
 import { shipFromOf } from "@/lib/shipping/settings";
 import { buyShippoLabel, getShippoRate, getShippoRates, rateKey, shippoConfigured } from "@/lib/shipping/shippo";
 import type { OrderItem, Parcel, RateOption, ShipAddress, TemporaryOrder } from "@/types";
@@ -163,7 +163,7 @@ export async function getLabelRates(orderId: string, parcel: Parcel): Promise<Re
     const sb = await admin();
     if (!shippoConfigured()) return { ok: false, message: "Carrier rates are not connected yet. Add SHIPPO_API_KEY in Netlify (Environment variables) and redeploy." };
     if (!parcelOk(parcel)) return { ok: false, message: "Enter the package weight and the length, width and height (inches). Max 70 lb." };
-    const from = shipFromOf(await getSiteSettings()); if (!from) return { ok: false, message: "Fill in your ship-from address in Settings first (street, city, state, ZIP)." };
+    const from = shipFromOf(await getSettingsWithPrivate()); if (!from) return { ok: false, message: "Fill in your ship-from address in Settings first (street, city, state, ZIP)." };
     const row = await loadOrder(sb, orderId);
     const all = await getShippoRates(from, destOf(row.data as TemporaryOrder), { weight_oz: Number(parcel.weight_oz), l: Number(parcel.l), w: Number(parcel.w), h: Number(parcel.h) });
     const best = new Map<string, RateOption>(); for (const r of all) { const k = rateKey(r); const c = best.get(k); if (!c || r.amount < c.amount) best.set(k, r); }
@@ -250,8 +250,13 @@ export async function saveSettings(v: SiteSettings): Promise<Res> {
     const data: SiteSettings = { ...prev, store_name: (v.store_name || "VEDAGLOW").trim().slice(0, 80), tagline: v.tagline.trim().slice(0, 120), email: v.email.trim().slice(0, 160), phone: v.phone.trim().slice(0, 40), whatsapp: v.whatsapp.trim().slice(0, 40),
       address: v.address.trim().slice(0, 300), hours: v.hours.trim().slice(0, 200), instagram: cleanUrl(v.instagram), facebook: cleanUrl(v.facebook), tiktok: cleanUrl(v.tiktok), youtube: cleanUrl(v.youtube),
       free_shipping_over: money0(v.free_shipping_over, 0), default_flat_rate: money0(v.default_flat_rate, 5.99),
-      ship_name: t(v.ship_name, 80), ship_company: t(v.ship_company, 80), ship_street1: t(v.ship_street1, 120), ship_street2: t(v.ship_street2, 80), ship_city: t(v.ship_city, 80), ship_state: state, ship_zip: zip, ship_phone: t(v.ship_phone, 40) };
-    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
+    };
+    // The ship-from address is private: it goes to the admin-only table and is never written to the public settings row.
+    const priv = { ship_name: t(v.ship_name, 80), ship_company: t(v.ship_company, 80), ship_street1: t(v.ship_street1, 120), ship_street2: t(v.ship_street2, 80), ship_city: t(v.ship_city, 80), ship_state: state, ship_zip: zip, ship_phone: t(v.ship_phone, 40) };
+    const pubData = { ...data } as Record<string, unknown>; for (const k of PRIVATE_SETTING_KEYS) delete pubData[k];
+    const { error: pe } = await sb.from("private_settings").upsert({ id: 1, data: priv }, { onConflict: "id" });
+    if (pe) return { ok: false, message: "Could not save the private shipping address. Run supabase/migration-9.sql first. (" + pe.message + ")" };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data: pubData }, { onConflict: "id" });
     if (error) return { ok: false, message: error.message }; await audit(sb, "settings.update", "Store settings saved"); refresh(); return { ok: true };
   } catch (e) { return fail(e); }
 }
