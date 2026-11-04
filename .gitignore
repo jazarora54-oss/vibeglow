@@ -1,0 +1,20 @@
+# dependencies and build output
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+# secrets - NEVER commit these
+.env
+.env.*
+!.env.example
+*.pem
+# backups contain customer data - never commit
+backups/
+*.dump
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.netlify/
+npm-debug.log*
