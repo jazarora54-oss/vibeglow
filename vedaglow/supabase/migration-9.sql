@@ -22,7 +22,9 @@ create table if not exists public.private_settings (
 );
 alter table public.private_settings enable row level security;
 drop policy if exists "private settings admin read" on public.private_settings;
+drop policy if exists "private settings admin write" on public.private_settings;
 create policy "private settings admin read" on public.private_settings for select to authenticated using (public.is_admin());
+create policy "private settings admin write" on public.private_settings for all to authenticated using (public.is_admin()) with check (public.is_admin());
 revoke all on public.private_settings from anon;
 -- COPY (not move) the address that is currently in the public settings row. The old copy is removed later by migration-9-scrub.sql,
 -- AFTER the new code is live and you have checked Settings still shows your address.
