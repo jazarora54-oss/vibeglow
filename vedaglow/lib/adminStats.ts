@@ -38,7 +38,7 @@ export interface Stats {
  *  - Refunds = full amount of orders marked "refunded" (incl. shipping). Their product value is taken out of net sales.
  *  - Net sales = Gross sales − Discounts − refunded product value.
  */
-export function computeStats(orders: OrderRow[], products: ProductRow[]): Stats {
+export function computeStats(orders: OrderRow[], products: ProductRow[], lowAt: number = LOW_STOCK_AT): Stats {
   const o = { total: 0, pending: 0, processing: 0, shipped: 0, delivered: 0, cancelled: 0, test: 0 };
   const m = { gross: 0, discounts: 0, refunds: 0, refundedProducts: 0, net: 0, awaitingPayment: 0, paidOrders: 0 };
   const sold = new Map<string, { id: string; name: string; units: number; revenue: number }>();
@@ -57,5 +57,5 @@ export function computeStats(orders: OrderRow[], products: ProductRow[]): Stats 
   for (const k of Object.keys(m) as (keyof typeof m)[]) m[k] = r2(m[k]);
   const live = products.filter(p => p.is_active);
   return { orders: o, money: m, best: [...sold.values()].map(e => ({ ...e, revenue: r2(e.revenue) })).sort((a, b) => b.units - a.units || b.revenue - a.revenue).slice(0, 5),
-    out: live.filter(p => p.stock <= 0), low: live.filter(p => p.stock > 0 && p.stock <= LOW_STOCK_AT).sort((a, b) => a.stock - b.stock) };
+    out: live.filter(p => p.stock <= 0), low: live.filter(p => p.stock > 0 && p.stock <= lowAt).sort((a, b) => a.stock - b.stock) };
 }

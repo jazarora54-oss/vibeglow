@@ -1,4 +1,5 @@
 "use client";
+import PriceCheck from "./PriceCheck";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
@@ -71,6 +72,7 @@ export default function ProductForm({ initial, isNew, defaultFlat = 5.99, catego
         </div>
         <div className="mt-4"><span className={lbl}>Badges / sections on website</span><div className="flex flex-wrap gap-4">{TAGS.map(t => <label key={t} className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-forest" checked={p.tags.includes(t)} onChange={e => set("tags", e.target.checked ? [...p.tags, t] : p.tags.filter(x => x !== t))} />{t === "best-seller" ? "Best seller" : t[0].toUpperCase() + t.slice(1)}</label>)}</div></div></section>
 
+      <PriceCheck name={p.name} brand={p.brand} size={p.size_quantity ?? p.size} price={Number(p.price)} />
       <section className={card}><h2 className="mb-1 font-display text-2xl font-semibold text-forest">Photos</h2><p className="mb-3 text-sm text-ink/60">First image is the main one. Without photos the site shows a branded placeholder bottle.</p>
         <ImageUploader value={p.images} onChange={v => set("images", v)} folder="products" /></section>
 

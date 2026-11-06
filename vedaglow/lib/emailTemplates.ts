@@ -34,6 +34,14 @@ export function statusUpdate(b: Brand, o: TemporaryOrder, status: string, tracki
   const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">${esc(c.head)}</h2><p>Order <b>${esc(o.id)}</b></p><p>${esc(c.body)}</p>${tracking ? `<p style="background:#faf6ee;padding:12px;border-radius:8px"><b>Tracking:</b> ${esc(tracking)}</p>` : ""}${itemsTable(o)}${btn(`${siteUrl()}/track-order`, "Track your order")}`, helpFooter(b));
   return { subject: `${c.subject} (${o.id})`, html, text: `${c.head}\nOrder ${o.id}\n${c.body}${tracking ? `\nTracking: ${tracking}` : ""}\nTrack: ${siteUrl()}/track-order` };
 }
+export function refundEmail(b: Brand, o: TemporaryOrder) {
+  const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Your refund is on its way</h2><p>Order <b>${esc(o.id)}</b></p><p>We have refunded <b>${money(o.payment?.amount ?? o.summary.total)}</b> to your original payment method. Your bank usually shows it within 5-10 business days.</p>${btn(`${siteUrl()}/track-order`, "View your order")}`, helpFooter(b));
+  return { subject: `Your refund for order ${o.id}`, html, text: `Your refund is on its way\nOrder ${o.id}\nWe refunded ${money(o.payment?.amount ?? o.summary.total)} to your original payment method (usually 5-10 business days).\n${siteUrl()}/track-order` };
+}
+export function testEmail(b: Brand) {
+  const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Test email</h2><p>If you can read this, order emails from ${esc(b.store_name)} are working.</p>`, helpFooter(b));
+  return { subject: `${b.store_name}: test email`, html, text: "Test email. Order emails are working." };
+}
 export function offerEmail(b: Brand, p: { name: string; slug: string; kind: "percent" | "amount"; value: number; code: string; expires: string; message: string; unsubscribeUrl: string }) {
   const off = p.kind === "percent" ? `${p.value}% off` : `${money(p.value)} off`;
   const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">${esc(off)} ${esc(p.name)}</h2>${p.message ? `<p>${esc(p.message)}</p>` : ""}<p style="font-size:14px;color:#666">Your personal code (one use only):</p><p style="font-size:26px;letter-spacing:3px;font-weight:bold;color:#b8862b;margin:4px 0">${esc(p.code)}</p><p style="color:#666;font-size:13px">Valid until ${esc(p.expires)}. Add the product to your cart and enter the code in the cart.</p>${btn(`${siteUrl()}/product/${p.slug}`, "View product")}`,

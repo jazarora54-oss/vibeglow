@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getSiteSettings } from "@/lib/data/site";
 import { serverClient } from "@/lib/supabase/server";
 import { card, STATUS_STYLE } from "@/components/admin/ui";
 import { money, fmtDateTime } from "@/lib/format";
@@ -14,7 +15,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ range?:
   let ordersRes: any = await pick(true); let testColumn = true;
   if (ordersRes.error && /is_test/i.test(ordersRes.error.message)) { testColumn = false; ordersRes = await pick(false); } // migration-6 not run yet
   const [{ data: products }, { data: recentProducts }] = await Promise.all([sb.from("products").select("id,name,stock,is_active,updated_at").limit(2000), sb.from("products").select("id,name,updated_at,is_active").order("updated_at", { ascending: false }).limit(6)]);
-  const orders = (ordersRes.data ?? []) as OrderRow[]; const st = computeStats(orders, (products ?? []) as ProductRow[]); const o = st.orders, m = st.money;
+  const orders = (ordersRes.data ?? []) as OrderRow[]; const lowAt = (await getSiteSettings()).low_stock_at || 5; const st = computeStats(orders, (products ?? []) as ProductRow[], lowAt); const o = st.orders, m = st.money;
   const cards: [string, string | number, string?][] = [["Total orders", o.total], ["Awaiting processing", o.pending, "/admin/orders?status=pending"], ["Processing", o.processing, "/admin/orders?status=processing"], ["Shipped", o.shipped, "/admin/orders?status=shipped"], ["Completed (delivered)", o.delivered, "/admin/orders?status=delivered"], ["Cancelled", o.cancelled, "/admin/orders?status=cancelled"]];
   const moneyCards: [string, string, string?][] = [["Gross sales", money(m.gross), "Products before discounts"], ["Discounts applied", money(m.discounts), "Coupons + automatic deals"], ["Refunds", money(m.refunds), "Orders marked refunded"], ["Net sales", money(m.net), "Gross − discounts − refunded products"]];
   return (<div className="space-y-6">
@@ -37,7 +38,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ range?:
       <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Recent orders</h2>
         {orders.length === 0 ? <p className="text-sm text-ink/60">No orders in this period.</p> : <ul className="divide-y divide-forest/10">{orders.slice(0, 6).map(r => <li key={r.id}><Link href={`/admin/orders/${r.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm hover:text-forest"><span><b>{r.id}</b>{r.is_test && <span className="ml-2 rounded bg-amber-100 px-1.5 text-xs font-semibold text-amber-800">TEST</span>}<br /><span className="text-ink/60">{r.customer_name} · {when(r.created_at)}</span></span><span className="text-right"><b>{money(Number(r.total))}</b><br /><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[r.status]}`}>{r.status}</span></span></Link></li>)}</ul>}
         <Link href="/admin/orders" className="mt-3 inline-block text-sm font-semibold text-forest underline">All orders →</Link></section>
-      <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Low stock <span className="text-sm font-normal text-ink/50">(5 or fewer)</span></h2>
+      <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Low stock <span className="text-sm font-normal text-ink/50">({lowAt} or fewer)</span></h2>
         {st.low.length === 0 ? <p className="text-sm text-ink/60">No product is running low.</p> : <ul className="divide-y divide-forest/10">{st.low.map(p => <li key={p.id}><Link href={`/admin/products/${p.id}`} className="flex justify-between py-2.5 text-sm hover:text-forest"><span>{p.name}</span><b className="text-amber-700">{p.stock} left</b></Link></li>)}</ul>}</section>
       <section className={card}><h2 className="mb-3 font-display text-2xl font-semibold text-forest">Out of stock</h2>
         {st.out.length === 0 ? <p className="text-sm text-ink/60">Every active product is in stock.</p> : <ul className="divide-y divide-forest/10">{st.out.map(p => <li key={p.id}><Link href={`/admin/products/${p.id}`} className="flex justify-between py-2.5 text-sm hover:text-forest"><span>{p.name}</span><b className="text-red-700">Out of stock</b></Link></li>)}</ul>}</section>

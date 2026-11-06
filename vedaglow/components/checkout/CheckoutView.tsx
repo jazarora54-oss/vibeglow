@@ -1,4 +1,5 @@
 "use client";
+import { track } from "@/lib/analytics";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -23,7 +24,8 @@ export default function CheckoutView({ payOnline = false }: { payOnline?: boolea
   const [contact, setContact] = useState<CustomerInformation>({ email: "", phone: "" });
   const [ship, setShip] = useState<Address>(emptyAddress()); const [bill, setBill] = useState<Address>(emptyAddress()); const [same, setSame] = useState(true);
   const [delivery, setDelivery] = useState(""); const [options, setOptions] = useState<ShippingOption[]>([]); const [quote, setQuote] = useState<QuoteState>({ status: "idle" }); const [nonce, setNonce] = useState(0); const [pay, setPay] = useState(""); const [errors, setErrors] = useState<Errors>({}); const [formMsg, setFormMsg] = useState(""); const [placing, setPlacing] = useState(false);
-  const [restored, setRestored] = useState(false);
+  const [restored, setRestored] = useState(false); const began = useRef(false);
+  useEffect(() => { if (!ready || began.current || items.length === 0) return; began.current = true; track("begin_checkout", { value: items.reduce((s, i) => s + i.unit_price * i.quantity, 0), items: items.map(i => ({ id: i.product_id, name: i.name ?? "Product", price: i.unit_price, quantity: i.quantity, variant: i.variant_label })) }); }, [ready, items]);
   useEffect(() => {
     try { const d = JSON.parse(sessionStorage.getItem(DRAFT) || "null");
       if (d && typeof d === "object") { if (d.contact) setContact(c => ({ ...c, ...d.contact })); if (d.ship) setShip({ ...emptyAddress(), ...d.ship }); if (d.bill) setBill({ ...emptyAddress(), ...d.bill }); if (typeof d.same === "boolean") setSame(d.same); } } catch { /* ignore */ }

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
 import OrderStatusForm from "@/components/admin/OrderStatusForm";
 import OrderShipping from "@/components/admin/OrderShipping";
+import PrintButton from "@/components/admin/PrintButton";
 import OrderRefund from "@/components/admin/OrderRefund";
 import OrderTestToggle from "@/components/admin/OrderTestToggle";
 import { getSiteSettings, getSettingsWithPrivate } from "@/lib/data/site";
@@ -21,7 +22,8 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
   const o = data.data as TemporaryOrder; const s = o.summary;
   const parcel = buildParcel(o.items.map(lineFromOrderItem)); const originOk = Boolean(shipFromOf(await getSettingsWithPrivate())); const a = o.checkout.shipping_address;
   return (<div className="space-y-5"><Link href="/admin/orders" className="text-sm font-semibold text-forest underline">← All orders</Link>
-    <h1 className="font-display text-4xl font-semibold text-forest">{data.id}</h1><p className="text-sm text-ink/60">Placed {fmtDateTime(data.created_at, true)}</p>
+    <h1 className="font-display text-4xl font-semibold text-forest">{data.id}</h1><p className="text-sm text-ink/60">Placed {fmtDateTime(data.created_at, true)}{data.invoice_no ? ` · Invoice ${data.invoice_no}` : ""}</p>
+    <div className="flex flex-wrap gap-2"><a href={`/admin/orders/${data.id}/invoice`} className="rounded-lg bg-forest px-4 py-2 text-sm font-semibold text-white hover:bg-forest-500">Download invoice (PDF)</a><Link href={`/admin/customers/${encodeURIComponent(String(data.email).toLowerCase())}`} className="rounded-lg border border-forest/25 bg-white px-4 py-2 text-sm font-semibold text-forest hover:bg-forest-100">View customer</Link><PrintButton /></div>
     <OrderTestToggle id={data.id} isTest={Boolean(data.is_test)} />
     <div className="grid items-start gap-5 lg:grid-cols-[1fr_340px]">
       <div className="space-y-5">

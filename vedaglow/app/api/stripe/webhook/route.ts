@@ -17,7 +17,7 @@ export async function POST(req: Request) {
       const st = await getSiteSettings();
       await markPaid(db, String(obj.metadata.order_id), { id: String(obj.id), payment_intent: typeof obj.payment_intent === "string" ? obj.payment_intent : undefined, amount_total: typeof obj.amount_total === "number" ? obj.amount_total : undefined }, { store_name: st.store_name, email: st.email }, process.env.ORDER_NOTIFY_EMAIL || st.email);
     } else if (ev.type === "checkout.session.expired" && obj.metadata?.order_id) await expireOrder(db, String(obj.metadata.order_id), String(obj.id));
-    else if (ev.type === "charge.refunded" && obj.refunded === true && typeof obj.payment_intent === "string") await markRefunded(db, obj.payment_intent);
+    else if (ev.type === "charge.refunded" && obj.refunded === true && typeof obj.payment_intent === "string") { const st = await getSiteSettings(); await markRefunded(db, obj.payment_intent, { store_name: st.store_name, email: st.email }); }
   } catch (e) { console.error("stripe webhook error:", e); return NextResponse.json({ error: "failed" }, { status: 500 }); } // Stripe will retry
   return NextResponse.json({ received: true });
 }

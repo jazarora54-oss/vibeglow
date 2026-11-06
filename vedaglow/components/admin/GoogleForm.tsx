@@ -3,7 +3,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveGoogle } from "@/app/admin/actions";
 import { btn, btn2, card, inp, lbl } from "./ui";
-export default function GoogleForm({ initial, base, feedCount, skipped }: { initial: { ga_id: string; google_verify: string }; base: string; feedCount: number; skipped: string[] }) {
+export default function GoogleForm({ initial, base, feedCount, skipped }: { initial: { ga_id: string; google_verify: string; meta_pixel_id: string }; base: string; feedCount: number; skipped: string[] }) {
   const [v, setV] = useState(initial); const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null); const [copied, setCopied] = useState(""); const [pending, start] = useTransition(); const router = useRouter();
   const copy = async (t: string) => { try { await navigator.clipboard.writeText(t); setCopied(t); } catch { /* ignore */ } };
   const feed = `${base}/feed/google.xml`, map = `${base}/sitemap.xml`;
@@ -13,6 +13,9 @@ export default function GoogleForm({ initial, base, feedCount, skipped }: { init
       <p className="mb-3 text-sm text-ink/60">Shows how many people visit and which pages they open. In Google Analytics create a “Web” data stream for your website, then copy the Measurement ID (starts with <b>G-</b>). Leave empty to switch it off. Admin pages are never counted.</p>
       <label className={lbl} htmlFor="ga">Measurement ID</label><input id="ga" className={`${inp} max-w-xs uppercase`} maxLength={20} placeholder="G-ABC123XYZ" value={v.ga_id} onChange={e => setV(o => ({ ...o, ga_id: e.target.value }))} />
       <p className="mt-2 text-xs text-ink/50">If you sell to visitors in Europe or California, add a cookie notice and a privacy policy that mention Analytics (Admin → Pages).</p></section>
+    <section className={card}><h2 className="mb-1 font-display text-2xl font-semibold text-forest">Meta (Facebook / Instagram) Pixel</h2>
+      <p className="mb-3 text-sm text-ink/60">Optional. Lets you measure Facebook/Instagram ads. In Meta Events Manager copy the Pixel ID (a long number). Leave empty to keep it off. Both Analytics and the Pixel only load <b>after the visitor clicks “Accept”</b> on the cookie notice.</p>
+      <label className={lbl} htmlFor="px">Pixel ID</label><input id="px" inputMode="numeric" className={`${inp} max-w-xs`} maxLength={20} placeholder="123456789012345" value={v.meta_pixel_id} onChange={e => setV(o => ({ ...o, meta_pixel_id: e.target.value }))} /></section>
     <section className={card}><h2 className="mb-1 font-display text-2xl font-semibold text-forest">Google Search Console</h2>
       <p className="mb-3 text-sm text-ink/60">Lets Google show you how the site appears in search. In Search Console add your website → choose “HTML tag” → paste the code here (the whole tag or just the code inside content=&quot;…&quot;).</p>
       <label className={lbl} htmlFor="gv">Verification code</label><input id="gv" className={inp} maxLength={200} value={v.google_verify} onChange={e => setV(o => ({ ...o, google_verify: e.target.value }))} />

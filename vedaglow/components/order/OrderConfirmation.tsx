@@ -1,4 +1,5 @@
 "use client";
+import { track } from "@/lib/analytics";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
@@ -22,6 +23,13 @@ export default function OrderConfirmation({ orderId }: { orderId: string }) {
     tick(); return () => { stop = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
+  // Purchase is reported once per order, and only after Stripe confirmed the payment.
+  useEffect(() => {
+    if (!order || !pay?.paid) return; const k = `vedaglow:purchase:${order.id}`;
+    try { if (localStorage.getItem(k)) return; } catch { /* ignore */ }
+    track("purchase", { transactionId: order.id, value: order.summary.total, items: order.items.map(i => ({ id: i.product_id, name: i.name, price: i.unit_price, quantity: i.quantity, variant: i.variant_label })) });
+    try { localStorage.setItem(k, "1"); } catch { /* ignore */ }
+  }, [order, pay?.paid]);
   if (order === undefined) return <div className="px-4 py-24 text-center text-ink/50" aria-busy="true">Loading your order…</div>;
   if (!order) return <div className="mx-auto max-w-lg px-4 py-20 text-center"><h1 className="font-display text-3xl font-semibold text-forest">Order not found</h1><p className="mt-2 text-ink/70">We couldn&apos;t find order {orderId} on this device.</p><Link href="/shop" className="mt-6 inline-block rounded-lg bg-forest px-8 py-3.5 text-sm font-semibold text-white">CONTINUE SHOPPING</Link></div>;
   const a = order.checkout.shipping_address; const b = order.checkout.billing_address;

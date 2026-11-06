@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import TrackViewItem from "@/components/product/TrackViewItem";
 import Link from "next/link";
 import { siteUrl } from "@/lib/site";
 import { getSiteSettings } from "@/lib/data/site";
@@ -48,6 +49,7 @@ export default async function ProductPage(props: Props) {
       shippingDetails: shipRate === undefined ? undefined : { "@type": "OfferShippingDetails", shippingRate: { "@type": "MonetaryAmount", value: shipRate.toFixed(2), currency: "USD" }, shippingDestination: { "@type": "DefinedRegion", addressCountry: "US" } } } };
   return (
     <ProductSelectionProvider product={product}>
+      <TrackViewItem id={product.id} name={product.name} price={product.price} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, ...(cat ? [{ name: cat.name, path: `/category/${cat.slug}` }] : []), { name: product.name }])) }} />
       <div className="pb-24 md:pb-0">

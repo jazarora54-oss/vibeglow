@@ -1,4 +1,5 @@
 "use client";
+import { track } from "@/lib/analytics";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { CartItem, Coupon, Deal, Product, ProductVariant } from "@/types";
 import { calculateItemCount, calculateSubtotal, findCoupon } from "@/lib/cart/cartCalculations";
@@ -39,6 +40,7 @@ export function CartProvider({ children, shipCfg = DEFAULT_SHIP_CONFIG, deals = 
   const notify = useCallback((message: string) => { clearTimeout(timer.current); setToast({ id: Date.now(), message }); timer.current = setTimeout(() => setToast(null), 3200); }, []);
   const addToCart = (p: Product, { variant, quantity = 1, ensure = false }: AddOptions = {}) => {
     const line: CartItem = { product_id: p.id, variant_id: variant?.id, quantity, unit_price: variant?.price ?? p.price, slug: p.slug, name: p.name, image: p.images[0], visual: p.visual, variant_label: variant?.label, sku: variant?.sku ?? p.sku, max_stock: variant?.stock ?? p.stock, ...cartShipFields(p) };
+    track("add_to_cart", { value: line.unit_price * quantity, items: [{ id: line.product_id, name: line.name ?? "Product", price: line.unit_price, quantity, variant: line.variant_label }] });
     setItems(prev => {
       const k = lineKey(line); const hit = prev.find(i => lineKey(i) === k);
       if (!hit) return [...prev, { ...line, quantity: Math.min(quantity, line.max_stock ?? quantity) }];

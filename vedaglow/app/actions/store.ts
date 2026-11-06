@@ -78,6 +78,11 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
     items.push({ ...base, line_total: Math.round(unit * l.quantity * 100) / 100, weight_g: sl.weight_g ?? undefined, pkg: sl.pkg ?? undefined, ship_mode: sl.mode }); cart.push(base);
   }
   const coupon = input.coupon_code ? await lookupCoupon(input.coupon_code) : null;
+  if (coupon) { // "first order only" coupons: checked here (the email is known now). If migration-12 is not run yet the column is simply absent and nothing is enforced.
+    const { data: fo } = await db.from("coupons").select("first_order_only").eq("code", coupon.code).maybeSingle();
+    if (fo?.first_order_only) { const em = co.contact.email.trim().toLowerCase().replace(/[%_\\]/g, "\\$&"); const { data: prev } = await db.from("orders").select("id").ilike("email", em).neq("status", "cancelled").limit(1);
+      if (prev && prev.length) return { status: "error", message: "This coupon is for a customer's first order only. Please remove it to continue." }; }
+  }
   // Shipping is worked out again here, on the server, from the database. The browser only says which option the customer picked.
   const settings = await getSettingsWithPrivate();
   const q = await quoteShipping({ lines: shipLines, subtotal: calculateSubtotal(cart), to: co.shipping_address, contact: co.contact, cfg: shipConfigOf(settings), from: shipFromOf(settings) });
@@ -114,7 +119,7 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
       try {
         const st = await getSiteSettings(); const brand = { store_name: st.store_name, email: st.email };
         const mc = orderConfirmation(brand, order); const notify = process.env.ORDER_NOTIFY_EMAIL || st.email; const ma = adminNewOrder(brand, order);
-        await Promise.allSettled([sendEmail({ to: co.contact.email.trim(), ...mc }), notify ? sendEmail({ to: notify, ...ma }) : Promise.resolve()]);
+        await Promise.allSettled([sendEmail({ to: co.contact.email.trim(), kind: "order_confirmation", ...mc }), notify ? sendEmail({ to: notify, kind: "admin_new_order", ...ma }) : Promise.resolve()]);
       } catch (err) { console.error("order email error:", err); }
     }
     return { status: "ok", order };
@@ -234,7 +239,7 @@ export async function subscribeNewsletter(email: string): Promise<{ ok: boolean;
   const { error } = cur ? await db.from("newsletter_subscribers").update(fields).eq("email", em) : await db.from("newsletter_subscribers").insert({ email: em, ...fields });
   if (error) { console.error("newsletter failed:", error.message); return { ok: false, message: "Could not sign you up. Please try again." }; }
   const st = await getSiteSettings();
-  try { const m = confirmSubscriptionEmail({ store_name: st.store_name, email: st.email }, { confirmUrl: `${siteUrl()}/newsletter/confirm?t=${confirmToken}` }); await sendEmail({ to: em, ...m }); } catch (e) { console.error("confirm email failed:", e); return { ok: false, message: "We could not send the confirmation email. Please try again." }; }
+  try { const m = confirmSubscriptionEmail({ store_name: st.store_name, email: st.email }, { confirmUrl: `${siteUrl()}/newsletter/confirm?t=${confirmToken}` }); await sendEmail({ to: em, kind: "newsletter_confirm", ...m }); } catch (e) { console.error("confirm email failed:", e); return { ok: false, message: "We could not send the confirmation email. Please try again." }; }
   return { ok: true, message: "Almost done! Please check your inbox and press the confirmation link." };
 }
 /** Called from the link in the confirmation email. Only now does the person become a subscriber. */
@@ -246,7 +251,21 @@ export async function confirmNewsletter(token: string): Promise<{ ok: boolean; m
   if (row.confirmed_at && !row.unsubscribed) return { ok: true, message: code ? `You are already subscribed. Your code: ${code}` : "You are already subscribed." };
   const { error } = await db.from("newsletter_subscribers").update({ unsubscribed: false, confirmed_at: new Date().toISOString() }).eq("confirm_token", t);
   if (error) return { ok: false, message: "Could not confirm. Please try again." };
-  if (emailConfigured()) { try { const m = welcomeEmail({ store_name: st.store_name, email: st.email }, { code, unsubscribeUrl: `${siteUrl()}/unsubscribe?t=${row.token}` }); await sendEmail({ to: row.email, ...m }); } catch (e) { console.error("welcome email failed:", e); } }
+  if (emailConfigured()) { try { const m = welcomeEmail({ store_name: st.store_name, email: st.email }, { code, unsubscribeUrl: `${siteUrl()}/unsubscribe?t=${row.token}` }); await sendEmail({ to: row.email, kind: "welcome", ...m }); } catch (e) { console.error("welcome email failed:", e); } }
   return { ok: true, message: code ? `Thank you for subscribing! Your code: ${code}` : "Thank you for subscribing!" };
 }
 
+
+/** Customer invoice download. Same proof as tracking (order number AND matching email), rate limited, only for paid orders. Returns the PDF as base64. */
+export async function downloadInvoice(orderId: string, email: string): Promise<{ ok: true; filename: string; base64: string } | { ok: false; message: string }> {
+  const nope = { ok: false as const, message: "We could not find a paid order with those details." };
+  if (!(await rateLimitOk("invoice", 6, 600))) return { ok: false, message: "Too many attempts. Please wait a few minutes and try again." };
+  const id = String(orderId ?? "").trim().toUpperCase().slice(0, 40), em = String(email ?? "").trim().toLowerCase().slice(0, 160);
+  const db = serviceClient(); if (!id || !em || !isSupabaseConfigured || !db) return nope;
+  const { data } = await db.from("orders").select("email,payment_status").eq("id", id).maybeSingle();
+  if (!data || String(data.email).trim().toLowerCase() !== em || data.payment_status !== "paid") return nope;
+  const s = await getSiteSettings(); const { loadInvoice, invoicePdf } = await import("@/lib/invoice");
+  const inv = await loadInvoice(id, { store_name: s.store_name, email: s.email || undefined });
+  if (!inv) return { ok: false, message: "Your invoice is not available yet. Please contact us." };
+  return { ok: true, filename: `${inv.invoiceNo}.pdf`, base64: Buffer.from(await invoicePdf(inv)).toString("base64") };
+}

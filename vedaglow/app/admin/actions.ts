@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
-import { productToRow, slugify, type ProductInput } from "@/lib/data/mappers";
+import { productToRow, slugify, autoSeo, type ProductInput } from "@/lib/data/mappers";
 import { getLocalProducts } from "@/lib/data/products";
 import { DEFAULT_FAQS, DEFAULT_PAGES, isPageSlug, type SiteSettings } from "@/lib/data/defaults";
 import { stateCode, trackingUrl, CARRIERS } from "@/lib/shipping/rules";
@@ -10,14 +10,16 @@ import { getSiteSettings, getSettingsWithPrivate, PRIVATE_SETTING_KEYS } from "@
 import { shipFromOf } from "@/lib/shipping/settings";
 import { buyShippoLabel, getShippoRate, getShippoRates, rateKey, shippoConfigured } from "@/lib/shipping/shippo";
 import type { OrderItem, Parcel, RateOption, ShipAddress, TemporaryOrder } from "@/types";
-import { emailConfigured, sendBatch, sendEmail } from "@/lib/email";
-import { offerEmail, statusUpdate } from "@/lib/emailTemplates";
+import { emailConfigured, marketingEnabled, sendBatch, sendEmail } from "@/lib/email";
+import { offerEmail, statusUpdate, refundEmail, testEmail } from "@/lib/emailTemplates";
 import { siteUrl } from "@/lib/site";
 import { audit } from "@/lib/audit";
 import { adjustStock } from "@/lib/orderStock";
 import { colorIssues, contrast, isHex } from "@/lib/theme";
 import { safeLink, topbarLines } from "@/lib/topbar";
-import { gaId, verifyToken } from "@/lib/seo";
+import { aiConfig, generate } from "@/lib/ai/provider";
+import { parseDraft, scanClaims, SYSTEM_PROMPT, userPrompt, cleanUrls, SENSITIVE, type AiDraft } from "@/lib/ai/draft";
+import { gaId, pixelId, verifyToken } from "@/lib/seo";
 import { checkConnection, refundPayment } from "@/lib/payments/stripe";
 import { homeSectionsOf } from "@/lib/data/homeSections";
 import { DEFAULT_CATEGORIES } from "@/lib/data/categories";
@@ -98,14 +100,19 @@ export async function deleteBanner(id: string): Promise<Res> {
 }
 
 // ---------- Coupons ----------
-export interface CouponInput { code: string; kind: "percent" | "amount"; value: number; min_subtotal?: number; usage_limit?: number; expires_at?: string; is_active: boolean; isNew: boolean }
+export interface CouponInput { code: string; kind: "percent" | "amount"; value: number; min_subtotal?: number; usage_limit?: number; expires_at?: string; is_active: boolean; first_order_only?: boolean; isNew: boolean }
 export async function saveCoupon(c: CouponInput): Promise<Res> {
   try {
     const sb = await admin();
     const code = c.code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, ""); if (!code) return { ok: false, message: "Enter a coupon code (letters / numbers)." };
     const v = Number(c.value); if (!(v > 0)) return { ok: false, message: "Discount value must be more than 0." }; if (c.kind === "percent" && v > 100) return { ok: false, message: "Percent cannot be more than 100." };
-    const row = { code, percent_off: c.kind === "percent" ? v : null, amount_off: c.kind === "amount" ? v : null, min_subtotal: c.min_subtotal ? Number(c.min_subtotal) : null, usage_limit: c.usage_limit ? Math.floor(Number(c.usage_limit)) : null, expires_at: c.expires_at ? new Date(c.expires_at).toISOString() : null, is_active: c.is_active };
-    const { error } = c.isNew ? await sb.from("coupons").insert(row) : await sb.from("coupons").update(row).eq("code", code);
+    const row = { code, percent_off: c.kind === "percent" ? v : null, amount_off: c.kind === "amount" ? v : null, min_subtotal: c.min_subtotal ? Number(c.min_subtotal) : null, usage_limit: c.usage_limit ? Math.floor(Number(c.usage_limit)) : null, expires_at: c.expires_at ? new Date(c.expires_at).toISOString() : null, is_active: c.is_active, first_order_only: Boolean(c.first_order_only) };
+    const write = (r: Record<string, unknown>) => c.isNew ? sb.from("coupons").insert(r) : sb.from("coupons").update(r).eq("code", code);
+    let { error } = await write(row);
+    if (error && /first_order_only/.test(error.message)) { // migration-12 not run yet
+      if (row.first_order_only) return { ok: false, message: "Run supabase/migration-12.sql in Supabase to use “First order only”." };
+      const { first_order_only: _f, ...rest } = row; ({ error } = await write(rest));
+    }
     if (error) return { ok: false, message: dbMsg(error.message) }; await audit(sb, c.isNew ? "coupon.create" : "coupon.update", `${code}: ${c.kind === "percent" ? v + "%" : "$" + v}${row.is_active ? "" : " (off)"}`); revalidatePath("/admin/coupons"); return { ok: true };
   } catch (e) { return fail(e); }
 }
@@ -123,7 +130,7 @@ async function notifyCustomer(order: TemporaryOrder, to: string, status: string,
     if (!emailConfigured()) return "Customer email NOT sent: email is not set up yet.";
     const st = await getSiteSettings(); const mail = statusUpdate({ store_name: st.store_name, email: st.email }, order, status, tracking);
     if (!mail) return "";
-    const r = await sendEmail({ to, ...mail }); return r.ok ? "Email sent to the customer." : `Email could not be sent: ${r.error}`;
+    const r = await sendEmail({ to, kind: "order_status", ...mail }); return r.ok ? "Email sent to the customer." : `Email could not be sent: ${r.error}`;
   } catch (e) { console.error("status email error:", e); return "Email could not be sent."; }
 }
 export async function updateOrder(id: string, v: { status: string; payment_status: string; notes: string; tracking_info?: string }): Promise<Res> {
@@ -210,6 +217,7 @@ export interface OfferInput { product_id: string; kind: "percent" | "amount"; va
 export async function sendOffers(o: OfferInput): Promise<Res> {
   try {
     const sb = await admin();
+    if (!marketingEnabled()) return { ok: false, message: "Promotional emails are switched OFF (safety setting). They stay off until you have a verified business sending domain and customer consent. Nothing was sent." };
     if (!emailConfigured()) return { ok: false, message: "Email is not set up yet, so offers cannot be sent. See Settings → Email." };
     const value = Number(o.value), days = Math.floor(Number(o.days));
     if (!(value > 0) || (o.kind === "percent" && value > 90)) return { ok: false, message: o.kind === "percent" ? "Percent must be between 1 and 90." : "Enter a discount amount." };
@@ -249,7 +257,7 @@ export async function saveSettings(v: SiteSettings): Promise<Res> {
     const prev = await getSiteSettings();
     const data: SiteSettings = { ...prev, store_name: (v.store_name || "VEDAGLOW").trim().slice(0, 80), tagline: v.tagline.trim().slice(0, 120), email: v.email.trim().slice(0, 160), phone: v.phone.trim().slice(0, 40), whatsapp: v.whatsapp.trim().slice(0, 40),
       address: v.address.trim().slice(0, 300), hours: v.hours.trim().slice(0, 200), instagram: cleanUrl(v.instagram), facebook: cleanUrl(v.facebook), tiktok: cleanUrl(v.tiktok), youtube: cleanUrl(v.youtube),
-      free_shipping_over: money0(v.free_shipping_over, 0), default_flat_rate: money0(v.default_flat_rate, 5.99),
+      free_shipping_over: money0(v.free_shipping_over, 0), default_flat_rate: money0(v.default_flat_rate, 5.99), low_stock_at: Math.min(1000, Math.max(0, Math.floor(money0(v.low_stock_at, 5)))),
     };
     // The ship-from address is private: it goes to the admin-only table and is never written to the public settings row.
     const priv = { ship_name: t(v.ship_name, 80), ship_company: t(v.ship_company, 80), ship_street1: t(v.ship_street1, 120), ship_street2: t(v.ship_street2, 80), ship_city: t(v.ship_city, 80), ship_state: state, ship_zip: zip, ship_phone: t(v.ship_phone, 40) };
@@ -519,15 +527,16 @@ export async function saveHomepage(rows: { key: string; on: boolean; title?: str
 }
 
 // ---------- Google & Analytics ----------
-export async function saveGoogle(v: { ga_id: string; google_verify: string }): Promise<Res> {
+export async function saveGoogle(v: { ga_id: string; google_verify: string; meta_pixel_id?: string }): Promise<Res> {
   try {
     const sb = await admin(); const rawGa = String(v.ga_id ?? "").trim(), rawVer = String(v.google_verify ?? "").trim();
     const ga = gaId(rawGa); if (rawGa && !ga) return { ok: false, message: "The Analytics ID looks like G-ABC123XYZ (starts with G-). Copy it from Google Analytics -> Admin -> Data streams." };
     const ver = verifyToken(rawVer); if (rawVer && !ver) return { ok: false, message: "That verification code does not look right. Paste only the code (or the whole meta tag) from Google Search Console." };
-    const prev = await getSiteSettings(); const data: SiteSettings = { ...prev, ga_id: ga, google_verify: ver };
+    const rawPx = String(v.meta_pixel_id ?? "").trim(), px = pixelId(rawPx); if (rawPx && !px) return { ok: false, message: "The Meta Pixel ID is a number of 15-16 digits (Meta Events Manager -> Data sources)." };
+    const prev = await getSiteSettings(); const data: SiteSettings = { ...prev, ga_id: ga, google_verify: ver, meta_pixel_id: px };
     const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
     if (error) return { ok: false, message: error.message };
-    await audit(sb, "google.update", `Analytics ${ga ? "on" : "off"}, Search Console ${ver ? "set" : "not set"}`); refresh(); revalidatePath("/admin/google"); return { ok: true };
+    await audit(sb, "google.update", `Analytics ${ga ? "on" : "off"}, Meta Pixel ${px ? "on" : "off"}, Search Console ${ver ? "set" : "not set"}`); refresh(); revalidatePath("/admin/google"); return { ok: true };
   } catch (e) { return fail(e); }
 }
 
@@ -543,9 +552,90 @@ export async function refundOrder(id: string): Promise<Res> {
     const o = row.data as TemporaryOrder; const pi = o.payment?.payment_intent;
     if (!pi) return { ok: false, message: "This order was not paid through Stripe here. Refund it where you took the money, then set Payment to Refunded." };
     const r = await refundPayment(pi, id); if (!r.ok) return { ok: false, message: r.message ?? "Stripe did not accept the refund." };
-    const { error: e2 } = await sb.from("orders").update({ payment_status: "refunded", data: { ...o, payment: { ...o.payment!, refunded_at: new Date().toISOString() } } }).eq("id", id);
+    const { data: fresh } = await sb.from("orders").select("email,data").eq("id", id).maybeSingle(); const o2 = (fresh?.data as TemporaryOrder) ?? o; let mailed = Boolean(o2.payment?.refund_emailed);
+    if (!mailed && emailConfigured() && fresh?.email) { try { const st = await getSiteSettings(); const mm = refundEmail({ store_name: st.store_name, email: st.email }, o2); mailed = (await sendEmail({ to: String(fresh.email), kind: "refund", ...mm })).ok; } catch { /* ignore */ } }
+    const { error: e2 } = await sb.from("orders").update({ payment_status: "refunded", data: { ...o2, payment: { ...o2.payment!, refunded_at: o2.payment?.refunded_at ?? new Date().toISOString(), refund_emailed: mailed } } }).eq("id", id);
     if (e2) return { ok: false, message: "Stripe refunded the money, but saving failed: set Payment to Refunded by hand. " + dbMsg(e2.message) };
     await audit(sb, "order.refund", `${id}: full refund $${o.summary.total.toFixed(2)}`); revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${id}`); revalidatePath("/admin");
     return { ok: true, message: "Refunded. The customer sees it in 5-10 days." };
   } catch (e) { return fail(e); }
 }
+
+// ---------- Customers (CRM notes, private) ----------
+export async function saveCustomerNote(email: string, note: string, tags: string): Promise<Res> {
+  try {
+    const sb = await admin(); const em = String(email ?? "").trim().toLowerCase().slice(0, 160); if (!em.includes("@")) return { ok: false, message: "Invalid customer." };
+    const t = String(tags ?? "").split(",").map(x => x.trim().toLowerCase().replace(/[^a-z0-9 _-]/g, "").slice(0, 24)).filter(Boolean).slice(0, 10);
+    const { error } = await sb.from("customer_notes").upsert({ email: em, note: String(note ?? "").slice(0, 4000), tags: t, updated_at: new Date().toISOString() });
+    if (error) return { ok: false, message: /customer_notes/.test(error.message) ? "Run supabase/migration-10.sql in Supabase first." : error.message };
+    await audit(sb, "customer.note", em); revalidatePath(`/admin/customers/${encodeURIComponent(em)}`);
+    return { ok: true, message: "Saved ✓" };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Email status + test ----------
+/** Sends a test email to the signed-in admin's own address only. */
+export async function sendTestEmail(): Promise<Res> {
+  try {
+    const sb = await admin(); const { data: { user } } = await sb.auth.getUser(); if (!user?.email) return { ok: false, message: "Your admin account has no email." };
+    if (!emailConfigured()) return { ok: false, message: "Email is not set up yet (RESEND_API_KEY is missing)." };
+    const st = await getSiteSettings(); const r = await sendEmail({ to: user.email, kind: "test", ...testEmail({ store_name: st.store_name, email: st.email }) });
+    await audit(sb, "email.test", user.email); revalidatePath("/admin/emails");
+    return r.ok ? { ok: true, message: `Test email sent to ${user.email}. Check your inbox (and spam).` } : { ok: false, message: r.error ?? "Could not send." };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Inventory ----------
+/** Sets the real stock count for a product (or one option of it). Logged with the reason; safe against simultaneous sales (row lock in the database). */
+export async function setStock(productId: string, variantId: string, qty: number, reason: string): Promise<Res> {
+  try {
+    const sb = await admin(); const n = Math.floor(Number(qty));
+    if (!Number.isFinite(n) || n < 0 || n > 100000) return { ok: false, message: "Enter a whole number from 0 to 100000." };
+    const { data, error } = await sb.rpc("set_stock", { p_product: String(productId).slice(0, 80), p_variant: String(variantId ?? "").slice(0, 80), p_qty: n, p_reason: String(reason ?? "").trim().slice(0, 200) });
+    if (error) return { ok: false, message: /set_stock/.test(error.message) && /function/i.test(error.message) ? "Run supabase/migration-12.sql in Supabase first." : /variant_required/.test(error.message) ? "Choose which option to change." : error.message };
+    await audit(sb, "stock.set", `${productId}${variantId ? "/" + variantId : ""}: ${(data as any)?.before} → ${n}${reason ? " (" + String(reason).slice(0, 60) + ")" : ""}`);
+    revalidatePath("/admin/inventory"); revalidatePath("/admin/products"); revalidatePath("/admin"); refresh();
+    return { ok: true, message: "Saved ✓" };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- AI Product Creator (suggests only; the owner decides) ----------
+const utcDayStart = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.toISOString(); };
+export async function generateProductDraft(input: { image_base64: string; mime: string; price: number; notes?: string; urls?: string; category_options: string[] }): Promise<Res & { draft?: AiDraft; needs?: string[]; warnings?: string[]; left?: number }> {
+  try {
+    const sb = await admin(); const cfg = aiConfig(); if (!cfg) return { ok: false, message: "AI is not connected yet. Add the provider key in Netlify (see Admin → AI Product Creator). You can still create the product by hand." };
+    const price = Number(input.price); if (!(price > 0) || price > 100000) return { ok: false, message: "Enter the selling price first." };
+    if (!["image/webp", "image/jpeg", "image/png"].includes(input.mime)) return { ok: false, message: "Use a JPG, PNG or WebP photo." };
+    const b64 = String(input.image_base64 ?? ""); if (!/^[A-Za-z0-9+/=]+$/.test(b64) || b64.length < 100 || b64.length > 1_800_000) return { ok: false, message: "The photo is missing or too large. Try a smaller photo." };
+    const cats = (input.category_options ?? []).map(String).filter(c => /^[a-z0-9-]{1,60}$/.test(c)).slice(0, 40); if (!cats.length) return { ok: false, message: "No categories found. Add a category first." };
+    const { count } = await sb.from("ai_usage").select("id", { count: "exact", head: true }).gte("created_at", utcDayStart());
+    const used = count ?? 0; if (used >= cfg.dailyLimit) return { ok: false, message: `Daily AI limit reached (${cfg.dailyLimit} per day). It resets at midnight UTC. Change AI_DAILY_LIMIT in Netlify if you want more.`, left: 0 };
+    const { data: { user } } = await sb.auth.getUser(); const urls = cleanUrls(input.urls ?? "");
+    const r = await generate(cfg, SYSTEM_PROMPT, userPrompt({ categories: cats, notes: input.notes, urls }), { mime: input.mime as "image/webp", base64: b64 });
+    await sb.from("ai_usage").insert({ provider: cfg.provider, model: cfg.model, ok: r.ok, input_tokens: r.inputTokens ?? null, output_tokens: r.outputTokens ?? null, error: r.ok ? null : (r.error ?? "").slice(0, 300), by_email: user?.email ?? null });
+    if (!r.ok) return { ok: false, message: r.error ?? "The AI could not answer.", left: Math.max(0, cfg.dailyLimit - used - 1) };
+    const d = parseDraft(r.text ?? "", cats); const left = Math.max(0, cfg.dailyLimit - used - 1);
+    if (!d.ok) return { ok: false, message: d.error, left };
+    await audit(sb, "ai.draft", `${d.draft!.name} via ${cfg.provider}`); return { ok: true, draft: d.draft, needs: d.needs, warnings: d.warnings, left };
+  } catch (e) { return fail(e); }
+}
+export async function createAiProduct(input: { draft: AiDraft; price: number; images: string[]; thumb?: string; publish: boolean; acknowledged: boolean; notes?: string; urls?: string; needs: string[] }): Promise<Res> {
+  try {
+    const sb = await admin(); const d = input.draft; const price = Math.round(Number(input.price) * 100) / 100;
+    if (!d?.name?.trim()) return { ok: false, message: "Product name is required." }; if (!(price > 0)) return { ok: false, message: "Enter a valid price." };
+    const images = (input.images ?? []).filter(u => typeof u === "string" && /^https:\/\//.test(u)).slice(0, 8); if (!images.length) return { ok: false, message: "Add the photo first." };
+    // Publishing is only possible after the owner confirms the checklist. Checked again here on the server (the browser is not trusted).
+    const stillNeeds = SENSITIVE.filter(f => !String((d as any)[f] ?? "").trim()); const claims = scanClaims([d.name, d.short_description, d.description, d.benefits, d.seo_title, d.seo_description].join(" \n "));
+    if (input.publish && (stillNeeds.length || claims.length) && !input.acknowledged) return { ok: false, message: `Not published: confirm the checklist first (${[...stillNeeds.map(f => f.replace(/_/g, " ") + " is empty"), ...claims.map(c => "wording: " + c)].join("; ")}).` };
+    const base = slugify(d.name); let slug = base; const { data: clash } = await sb.from("products").select("slug").like("slug", `${base}%`).limit(50); const taken = new Set((clash ?? []).map(r => r.slug)); for (let i = 2; taken.has(slug); i++) slug = `${base}-${i}`;
+    const seo = autoSeoFor(d);
+    const p: ProductInput = { id: "", slug, name: d.name.trim().slice(0, 120), brand: d.brand || undefined, product_type: d.product_type || undefined, category: d.category as ProductInput["category"], short_description: d.short_description, description: d.description || undefined, ingredients: d.ingredients || undefined, how_to_use: d.how_to_use || undefined, benefits: d.benefits || undefined, size_quantity: d.size_quantity || undefined, suitable_for: d.suitable_for || undefined,
+      price, images, visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: 0, is_active: Boolean(input.publish), sort_priority: 0, condition: "New", specifics: [], seo_title: d.seo_title || seo.title, seo_description: d.seo_description || seo.description, seo_keywords: d.seo_keywords || seo.keywords };
+    const r = await saveProduct(p); if (!r.ok) return r;
+    const { data: { user } } = await sb.auth.getUser(); const cfg = aiConfig();
+    await sb.from("product_ai_drafts").insert({ product_id: r.id, provider: cfg?.provider ?? null, model: cfg?.model ?? null, price, notes: (input.notes ?? "").slice(0, 1200), source_urls: cleanUrls(input.urls ?? ""), suggestion: { ...d, thumb: input.thumb ?? null }, needs_verification: [...stillNeeds, ...claims.map(c => "claim:" + c)], published: Boolean(input.publish), by_email: user?.email ?? null });
+    revalidatePath("/admin/products"); revalidatePath("/admin/ai-product");
+    return { ok: true, id: r.id, message: input.publish ? "Published. Remember to set the stock in Inventory." : "Saved as a draft (hidden from the shop). Open it in Products to finish and publish." };
+  } catch (e) { return fail(e); }
+}
+function autoSeoFor(d: AiDraft) { return autoSeo({ name: d.name, brand: d.brand || undefined, short_description: d.short_description, description: d.description, product_type: d.product_type || undefined, category: d.category as ProductInput["category"] }); }

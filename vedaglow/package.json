@@ -6,13 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "dev:local": "next dev -H 127.0.0.1 -p 3000",
+    "typecheck": "tsc --noEmit",
+    "check-env": "node scripts/check-env.mjs",
+    "backup": "node scripts/backup.mjs",
+    "verify-backup": "node scripts/verify-backup.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
     "lucide-react": "^0.453.0",
     "next": "^15.5.28",
+    "pdf-lib": "^1.17.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

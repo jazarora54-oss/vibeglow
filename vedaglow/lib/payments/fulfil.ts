@@ -1,6 +1,6 @@
 import type { PaymentInfo, TemporaryOrder } from "@/types";
 import { adjustStock } from "@/lib/orderStock";
-import { adminNewOrder, orderConfirmation } from "@/lib/emailTemplates";
+import { adminNewOrder, orderConfirmation, refundEmail } from "@/lib/emailTemplates";
 import { emailConfigured, sendEmail } from "@/lib/email";
 import { cents } from "./stripe";
 /** What happens in the database when Stripe tells us something. `db` is the service-role Supabase client (a plain object in tests). All of these are safe to run twice. */
@@ -24,7 +24,7 @@ export async function markPaid(db: Db, orderId: string, s: { id: string; payment
     try {
       payment.emailed = true; await db.from("orders").update({ data: { ...o, payment } }).eq("id", orderId); // mark first so a retry never mails twice
       const mc = orderConfirmation(brand, o); const ma = adminNewOrder(brand, o);
-      await Promise.allSettled([sendEmail({ to: o.checkout.contact.email.trim(), ...mc }), notifyTo ? sendEmail({ to: notifyTo, ...ma }) : Promise.resolve()]);
+      await Promise.allSettled([sendEmail({ to: o.checkout.contact.email.trim(), kind: "order_confirmation", ...mc }), notifyTo ? sendEmail({ to: notifyTo, kind: "admin_new_order", ...ma }) : Promise.resolve()]);
     } catch (e) { console.error("paid email error:", e); }
   }
   return "paid";
@@ -40,10 +40,12 @@ export async function expireOrder(db: Db, orderId: string, sessionId?: string): 
   await db.from("orders").update({ status: "cancelled", stock_restored: restored, notes: note(row.notes, "Cancelled automatically: the card payment was not completed in time. Stock was put back.") }).eq("id", orderId);
   return "cancelled";
 }
-export async function markRefunded(db: Db, paymentIntent: string): Promise<string> {
-  const { data: row } = await db.from("orders").select("id,payment_status,data").eq("data->payment->>payment_intent", paymentIntent).maybeSingle();
+export async function markRefunded(db: Db, paymentIntent: string, brand?: { store_name: string; email?: string }): Promise<string> {
+  const { data: row } = await db.from("orders").select("id,email,payment_status,data").eq("data->payment->>payment_intent", paymentIntent).maybeSingle();
   if (!row) return "unknown order"; if (row.payment_status === "refunded") return "already refunded";
   const o = row.data as TemporaryOrder;
-  await db.from("orders").update({ payment_status: "refunded", data: { ...o, payment: { ...(o.payment as PaymentInfo), refunded_at: new Date().toISOString() } } }).eq("id", row.id);
+  const prev = o.payment as PaymentInfo; let mailed = Boolean(prev?.refund_emailed);
+  if (!mailed && brand && emailConfigured() && row.email) { try { mailed = (await sendEmail({ to: String(row.email).trim(), kind: "refund", ...refundEmail(brand, o) })).ok; } catch (e) { console.error("refund email error:", e); } }
+  await db.from("orders").update({ payment_status: "refunded", data: { ...o, payment: { ...prev, refunded_at: new Date().toISOString(), refund_emailed: mailed } } }).eq("id", row.id);
   return "refunded";
 }
