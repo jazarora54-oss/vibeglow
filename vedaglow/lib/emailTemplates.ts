@@ -1,11 +1,13 @@
 import type { Address, TemporaryOrder } from "@/types";
 import { siteUrl } from "@/lib/site";
 import { money } from "@/lib/format";
-export interface Brand { store_name: string; email?: string }
+export interface Brand { store_name: string; email?: string; logo_url?: string }
+/** One place that decides how the business is shown in every email. */
+export const brandOf = (st: { store_name: string; email?: string; support_email?: string; logo_url?: string }): Brand => ({ store_name: st.store_name || "VedaGlow", email: st.support_email || st.email || undefined, logo_url: /^https:\/\//.test(st.logo_url ?? "") ? st.logo_url : undefined });
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 const btn = (href: string, label: string) => `<p style="margin:24px 0"><a href="${esc(href)}" style="background:#123d28;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:bold;display:inline-block">${esc(label)}</a></p>`;
 function wrap(b: Brand, inner: string, footer: string) {
-  return `<!doctype html><html><body style="margin:0;background:#faf6ee;font-family:Arial,Helvetica,sans-serif;color:#2b2b2b;line-height:1.5"><table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden"><tr><td style="background:#123d28;color:#ffffff;padding:20px 28px;font-size:24px;letter-spacing:3px">${esc(b.store_name)}</td></tr><tr><td style="padding:28px">${inner}</td></tr><tr><td style="padding:16px 28px;background:#f3ecdc;font-size:12px;color:#666666">${footer}</td></tr></table></td></tr></table></body></html>`;
+  return `<!doctype html><html><body style="margin:0;background:#faf6ee;font-family:Arial,Helvetica,sans-serif;color:#2b2b2b;line-height:1.5"><table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden"><tr><td style="background:#123d28;color:#ffffff;padding:20px 28px;font-size:24px;letter-spacing:3px">${b.logo_url ? `<img src="${esc(b.logo_url)}" alt="${esc(b.store_name)}" height="40" style="display:block;height:40px;max-width:240px;border:0">` : esc(b.store_name)}</td></tr><tr><td style="padding:28px">${inner}</td></tr><tr><td style="padding:16px 28px;background:#f3ecdc;font-size:12px;color:#666666">${footer}</td></tr></table></td></tr></table></body></html>`;
 }
 const helpFooter = (b: Brand) => `Questions? ${b.email ? `Email us at ${esc(b.email)} or ` : ""}use the contact page: <a href="${siteUrl()}/contact" style="color:#123d28">${siteUrl()}/contact</a>`;
 const addr = (a: Address) => `${esc(a.first_name)} ${esc(a.last_name)}<br>${esc(a.address1)}${a.address2 ? ", " + esc(a.address2) : ""}<br>${esc(a.city)}, ${esc(a.state)} ${esc(a.zip)}<br>${esc(a.country)}`;
@@ -37,6 +39,29 @@ export function statusUpdate(b: Brand, o: TemporaryOrder, status: string, tracki
 export function refundEmail(b: Brand, o: TemporaryOrder) {
   const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Your refund is on its way</h2><p>Order <b>${esc(o.id)}</b></p><p>We have refunded <b>${money(o.payment?.amount ?? o.summary.total)}</b> to your original payment method. Your bank usually shows it within 5-10 business days.</p>${btn(`${siteUrl()}/track-order`, "View your order")}`, helpFooter(b));
   return { subject: `Your refund for order ${o.id}`, html, text: `Your refund is on its way\nOrder ${o.id}\nWe refunded ${money(o.payment?.amount ?? o.summary.total)} to your original payment method (usually 5-10 business days).\n${siteUrl()}/track-order` };
+}
+/** Who gets "new order" mail: Business Email settings first, then the old env variable, then the support email. */
+export const notifyEmail = (st: { order_notify_email?: string; support_email?: string; email?: string }, env: Record<string, string | undefined> = process.env) => (st.order_notify_email || env.ORDER_NOTIFY_EMAIL || st.support_email || st.email || "").trim();
+export function invoiceEmail(b: Brand, o: TemporaryOrder, invoiceNo: string) {
+  const first = o.checkout.shipping_address.first_name;
+  const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Your invoice ${esc(invoiceNo)}</h2><p>Hi ${esc(first)}, your invoice for order <b>${esc(o.id)}</b> is attached as a PDF.</p>${itemsTable(o)}${totals(o)}${btn(`${siteUrl()}/track-order`, "Track your order")}`, helpFooter(b));
+  return { subject: `Invoice ${invoiceNo} for your ${b.store_name} order ${o.id}`, html, text: `Hi ${first}, your invoice ${invoiceNo} for order ${o.id} is attached (PDF). Total ${money(o.summary.total)}. ${siteUrl()}/track-order` };
+}
+export function refundNoticeAdmin(b: Brand, o: TemporaryOrder) {
+  const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Refund processed – order ${esc(o.id)}</h2><p>${money(o.payment?.amount ?? o.summary.total)} was refunded to ${esc(o.checkout.contact.email)}.</p>${btn(`${siteUrl()}/admin/orders/${encodeURIComponent(o.id)}`, "Open the order")}`, "Internal notice");
+  return { subject: `Refund processed – ${b.store_name} order ${o.id}`, html, text: `Refund processed for order ${o.id}: ${money(o.payment?.amount ?? o.summary.total)} to ${o.checkout.contact.email}.` };
+}
+export function contactNotify(b: Brand, m: { name: string; email: string; subject?: string | null; message: string }) {
+  const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">New customer inquiry</h2><p><b>${esc(m.name)}</b> &lt;${esc(m.email)}&gt;</p>${m.subject ? `<p>Subject: ${esc(m.subject)}</p>` : ""}<p style="white-space:pre-wrap;background:#faf6ee;padding:12px;border-radius:8px">${esc(m.message)}</p>${btn(`${siteUrl()}/admin/messages`, "Open and reply")}`, "Internal notice – reply from Admin → Messages");
+  return { subject: `New Customer Inquiry – ${b.store_name}`, html, text: `New inquiry from ${m.name} <${m.email}>:\n\n${m.message}\n\nReply: ${siteUrl()}/admin/messages` };
+}
+export function contactAck(b: Brand, m: { name: string; message: string }) {
+  const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">We got your message, ${esc(m.name.split(" ")[0])}</h2><p>Thank you for contacting ${esc(b.store_name)}. We usually reply within 1–2 business days.</p><p style="color:#666">Your message:</p><p style="white-space:pre-wrap;background:#faf6ee;padding:12px;border-radius:8px">${esc(m.message.slice(0, 600))}</p>`, helpFooter(b));
+  return { subject: `We received your message – ${b.store_name}`, html, text: `Hi ${m.name}, thank you for contacting ${b.store_name}. We usually reply within 1-2 business days.\n\nYour message:\n${m.message.slice(0, 600)}` };
+}
+export function contactReply(b: Brand, m: { name: string; reply: string; original: string }) {
+  const html = wrap(b, `<p>Hi ${esc(m.name.split(" ")[0])},</p><p style="white-space:pre-wrap">${esc(m.reply)}</p><p style="color:#888;font-size:12px;margin-top:24px">In reply to your message:</p><p style="white-space:pre-wrap;color:#666;font-size:13px;border-left:3px solid #e9d2b4;padding-left:10px">${esc(m.original.slice(0, 500))}</p>`, helpFooter(b));
+  return { subject: `Re: your message to ${b.store_name}`, html, text: `Hi ${m.name},\n\n${m.reply}\n\n--\nIn reply to: ${m.original.slice(0, 500)}` };
 }
 export function testEmail(b: Brand) {
   const html = wrap(b, `<h2 style="margin:0 0 8px;color:#123d28">Test email</h2><p>If you can read this, order emails from ${esc(b.store_name)} are working.</p>`, helpFooter(b));

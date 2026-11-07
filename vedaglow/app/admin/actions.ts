@@ -10,8 +10,9 @@ import { getSiteSettings, getSettingsWithPrivate, PRIVATE_SETTING_KEYS } from "@
 import { shipFromOf } from "@/lib/shipping/settings";
 import { buyShippoLabel, getShippoRate, getShippoRates, rateKey, shippoConfigured } from "@/lib/shipping/shippo";
 import type { OrderItem, Parcel, RateOption, ShipAddress, TemporaryOrder } from "@/types";
-import { emailConfigured, marketingEnabled, sendBatch, sendEmail } from "@/lib/email";
-import { offerEmail, statusUpdate, refundEmail, testEmail } from "@/lib/emailTemplates";
+import { emailConfigured, marketingEnabled, sendBatch, sendEmail, retryLogged, testConnection } from "@/lib/email";
+import { loadInvoice, invoicePdf } from "@/lib/invoice";
+import { offerEmail, statusUpdate, refundEmail, refundNoticeAdmin, testEmail, brandOf, notifyEmail, invoiceEmail, contactReply } from "@/lib/emailTemplates";
 import { siteUrl } from "@/lib/site";
 import { audit } from "@/lib/audit";
 import { adjustStock } from "@/lib/orderStock";
@@ -128,7 +129,7 @@ async function notifyCustomer(order: TemporaryOrder, to: string, status: string,
   try {
     if (!["processing", "shipped", "delivered", "cancelled"].includes(status)) return "";
     if (!emailConfigured()) return "Customer email NOT sent: email is not set up yet.";
-    const st = await getSiteSettings(); const mail = statusUpdate({ store_name: st.store_name, email: st.email }, order, status, tracking);
+    const st = await getSiteSettings(); const mail = statusUpdate(brandOf(st), order, status, tracking);
     if (!mail) return "";
     const r = await sendEmail({ to, kind: "order_status", ...mail }); return r.ok ? "Email sent to the customer." : `Email could not be sent: ${r.error}`;
   } catch (e) { console.error("status email error:", e); return "Email could not be sent."; }
@@ -232,7 +233,7 @@ export async function sendOffers(o: OfferInput): Promise<Res> {
     const expires = new Date(Date.now() + days * 86400000);
     const rows = eligible.map(x => ({ code: newCode(), percent_off: o.kind === "percent" ? value : null, amount_off: o.kind === "amount" ? value : null, product_id: o.product_id, usage_limit: 1, expires_at: expires.toISOString(), is_active: true, _to: x.email, _token: x.token }));
     const { error: ce } = await sb.from("coupons").insert(rows.map(({ _to, _token, ...c }) => c)); if (ce) return { ok: false, message: dbMsg(ce.message) };
-    const st = await getSiteSettings(); const brand = { store_name: st.store_name, email: st.email }; const exp = expires.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
+    const st = await getSiteSettings(); const brand = brandOf(st); const exp = expires.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
     const mails = rows.map(r => { const m = offerEmail(brand, { name: prod.name, slug: prod.slug, kind: o.kind, value, code: r.code, expires: exp, message, unsubscribeUrl: `${siteUrl()}/unsubscribe?t=${r._token}` }); return { to: r._to as string, ...m }; });
     const sent = await sendBatch(mails);
     if (!sent.ok) { await sb.from("coupons").delete().in("code", rows.map(r => r.code)); return { ok: false, message: `Emails could not be sent: ${sent.error}` }; }
@@ -553,7 +554,7 @@ export async function refundOrder(id: string): Promise<Res> {
     if (!pi) return { ok: false, message: "This order was not paid through Stripe here. Refund it where you took the money, then set Payment to Refunded." };
     const r = await refundPayment(pi, id); if (!r.ok) return { ok: false, message: r.message ?? "Stripe did not accept the refund." };
     const { data: fresh } = await sb.from("orders").select("email,data").eq("id", id).maybeSingle(); const o2 = (fresh?.data as TemporaryOrder) ?? o; let mailed = Boolean(o2.payment?.refund_emailed);
-    if (!mailed && emailConfigured() && fresh?.email) { try { const st = await getSiteSettings(); const mm = refundEmail({ store_name: st.store_name, email: st.email }, o2); mailed = (await sendEmail({ to: String(fresh.email), kind: "refund", ...mm })).ok; } catch { /* ignore */ } }
+    if (!mailed && emailConfigured() && fresh?.email) { try { const st = await getSiteSettings(); const mm = refundEmail(brandOf(st), o2); mailed = (await sendEmail({ to: String(fresh.email), kind: "refund", dedupeKey: `refund:${id}`, orderId: id, ...mm })).ok; const rn = st.refund_notify_email || notifyEmail(st); if (rn) await sendEmail({ to: rn, kind: "refund_admin", dedupeKey: `refund_admin:${id}`, orderId: id, ...refundNoticeAdmin(brandOf(st), o2) }); } catch { /* ignore */ } }
     const { error: e2 } = await sb.from("orders").update({ payment_status: "refunded", data: { ...o2, payment: { ...o2.payment!, refunded_at: o2.payment?.refunded_at ?? new Date().toISOString(), refund_emailed: mailed } } }).eq("id", id);
     if (e2) return { ok: false, message: "Stripe refunded the money, but saving failed: set Payment to Refunded by hand. " + dbMsg(e2.message) };
     await audit(sb, "order.refund", `${id}: full refund $${o.summary.total.toFixed(2)}`); revalidatePath("/admin/orders"); revalidatePath(`/admin/orders/${id}`); revalidatePath("/admin");
@@ -579,7 +580,7 @@ export async function sendTestEmail(): Promise<Res> {
   try {
     const sb = await admin(); const { data: { user } } = await sb.auth.getUser(); if (!user?.email) return { ok: false, message: "Your admin account has no email." };
     if (!emailConfigured()) return { ok: false, message: "Email is not set up yet (RESEND_API_KEY is missing)." };
-    const st = await getSiteSettings(); const r = await sendEmail({ to: user.email, kind: "test", ...testEmail({ store_name: st.store_name, email: st.email }) });
+    const st = await getSiteSettings(); const r = await sendEmail({ to: user.email, kind: "test", ...testEmail(brandOf(st)) });
     await audit(sb, "email.test", user.email); revalidatePath("/admin/emails");
     return r.ok ? { ok: true, message: `Test email sent to ${user.email}. Check your inbox (and spam).` } : { ok: false, message: r.error ?? "Could not send." };
   } catch (e) { return fail(e); }
@@ -639,3 +640,47 @@ export async function createAiProduct(input: { draft: AiDraft; price: number; im
   } catch (e) { return fail(e); }
 }
 function autoSeoFor(d: AiDraft) { return autoSeo({ name: d.name, brand: d.brand || undefined, short_description: d.short_description, description: d.description, product_type: d.product_type || undefined, category: d.category as ProductInput["category"] }); }
+
+// ---------- Business email (central settings) ----------
+const mailOk = (v: unknown) => /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/.test(String(v ?? "").trim());
+export async function saveBusinessEmail(v: Pick<SiteSettings, "store_name" | "sender_name" | "email" | "reply_to" | "support_email" | "order_notify_email" | "invoice_email" | "refund_notify_email" | "smtp_host" | "smtp_port" | "smtp_secure" | "smtp_user" | "auto_email_invoice">): Promise<Res> {
+  try {
+    const sb = await admin(); const t = (x: unknown, n: number) => String(x ?? "").replace(/[\r\n<>"]/g, " ").trim().slice(0, n);
+    for (const [k, label] of [["email", "Contact email"], ["reply_to", "Reply-to email"], ["support_email", "Support email"], ["order_notify_email", "Order notification email"], ["invoice_email", "Invoice email"], ["refund_notify_email", "Refund notification email"], ["smtp_user", "Sender (SMTP) email"]] as const) { const x = String((v as any)[k] ?? "").trim(); if (x && !mailOk(x)) return { ok: false, message: `${label} does not look like an email address.` }; }
+    if (!mailOk(v.email)) return { ok: false, message: "Contact email is required." };
+    const port = Math.floor(Number(v.smtp_port)); if (!(port > 0 && port < 65536)) return { ok: false, message: "SMTP port must be a number like 465 or 587." };
+    const host = t(v.smtp_host, 100); if (!/^[a-z0-9.-]+$/i.test(host)) return { ok: false, message: "SMTP host looks wrong (example: smtp.gmail.com)." };
+    const prev = await getSiteSettings();
+    const data: SiteSettings = { ...prev, store_name: t(v.store_name, 80) || prev.store_name, sender_name: t(v.sender_name, 80), email: t(v.email, 160), reply_to: t(v.reply_to, 160), support_email: t(v.support_email, 160), order_notify_email: t(v.order_notify_email, 160), invoice_email: t(v.invoice_email, 160), refund_notify_email: t(v.refund_notify_email, 160), smtp_host: host.toLowerCase(), smtp_port: port, smtp_secure: Boolean(v.smtp_secure), smtp_user: t(v.smtp_user, 160), auto_email_invoice: Boolean(v.auto_email_invoice) };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" }); if (error) return { ok: false, message: error.message };
+    await audit(sb, "settings.business_email", `contact ${data.email}, notify ${data.order_notify_email || "(default)"}, auto invoice ${data.auto_email_invoice ? "on" : "off"}`);
+    refresh(); revalidatePath("/", "layout"); return { ok: true, message: "Saved ✓ The website and emails now use these addresses." };
+  } catch (e) { return fail(e); }
+}
+export async function testEmailConnection(): Promise<Res> { try { await admin(); const r = await testConnection(); return { ok: r.ok, message: r.message }; } catch (e) { return fail(e); } }
+export async function retryEmail(id: number): Promise<Res> {
+  try { const sb = await admin(); const r = await retryLogged(Number(id)); await audit(sb, "email.retry", String(id)); revalidatePath("/admin/emails"); return r.ok ? { ok: true, message: r.skipped ? "Already sent earlier – nothing resent." : "Sent ✓" } : { ok: false, message: r.error ?? "Still failing." }; } catch (e) { return fail(e); }
+}
+/** Admin "Email invoice to customer". Printing never calls this. Each press sends once and is logged. */
+export async function emailInvoice(orderId: string): Promise<Res> {
+  try {
+    const sb = await admin(); if (!emailConfigured()) return { ok: false, message: "Email is not set up yet (see Admin → Business Email)." };
+    const id = String(orderId ?? "").slice(0, 60); const { data: row } = await sb.from("orders").select("email,payment_status,data").eq("id", id).maybeSingle(); if (!row) return { ok: false, message: "Order not found." };
+    const st = await getSiteSettings(); const inv = await loadInvoice(id, brandOf(st)); if (!inv) return { ok: false, message: "Invoice could not be created (is migration-10 run?)." };
+    const to = String(row.email).trim(); const r = await sendEmail({ to, kind: "invoice", orderId: id, replyTo: st.invoice_email || undefined, attachments: [{ filename: `${inv.invoiceNo}.pdf`, content: Buffer.from(await invoicePdf(inv)), contentType: "application/pdf" }], ...invoiceEmail(brandOf(st), row.data as TemporaryOrder, inv.invoiceNo) });
+    await audit(sb, "invoice.email", `${id} → ${to} ${r.ok ? "sent" : "FAILED"}`); revalidatePath("/admin/emails");
+    return r.ok ? { ok: true, message: `Invoice ${inv.invoiceNo} emailed to ${to} ✓` } : { ok: false, message: `Not sent: ${r.error}` };
+  } catch (e) { return fail(e); }
+}
+/** Reply to a contact-form inquiry by email (saved on the message). */
+export async function replyToMessage(id: string, reply: string): Promise<Res> {
+  try {
+    const sb = await admin(); const text = String(reply ?? "").trim().slice(0, 4000); if (text.length < 2) return { ok: false, message: "Write your reply first." };
+    if (!emailConfigured()) return { ok: false, message: "Email is not set up yet (see Admin → Business Email)." };
+    const { data: m } = await sb.from("messages").select("name,email,message").eq("id", id).maybeSingle(); if (!m) return { ok: false, message: "Message not found." };
+    const st = await getSiteSettings(); const r = await sendEmail({ to: m.email, kind: "inquiry_reply", ...contactReply(brandOf(st), { name: m.name, reply: text, original: m.message }) });
+    if (!r.ok) return { ok: false, message: `Not sent: ${r.error}` };
+    await sb.from("messages").update({ replied_at: new Date().toISOString(), reply_text: text, is_read: true }).eq("id", id); await audit(sb, "message.reply", `${m.email}`); revalidatePath("/admin/messages");
+    return { ok: true, message: "Reply emailed ✓" };
+  } catch (e) { return fail(e); }
+}

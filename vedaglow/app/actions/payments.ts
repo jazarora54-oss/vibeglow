@@ -1,4 +1,5 @@
 "use server";
+import { brandOf, notifyEmail } from "@/lib/emailTemplates";
 import { serviceClient } from "@/lib/supabase/server";
 import { siteUrl } from "@/lib/site";
 import { rateLimitOk } from "@/lib/rateLimit";
@@ -18,7 +19,7 @@ export async function startPayment(orderId: string, email: string): Promise<{ ok
     if (row.payment_status === "paid") return { ok: true, url: `${siteUrl()}/order-confirmation/${encodeURIComponent(orderId)}?paid=1` };
     if (row.status !== "pending") return { ok: false, message: "This order can no longer be paid. Please place a new order." };
     const o = row.data as TemporaryOrder;
-    if (!(o.summary.total > 0)) { const st = await getSiteSettings(); await markPaid(db, orderId, { id: `free-${orderId}`, amount_total: 0 }, { store_name: st.store_name, email: st.email }, process.env.ORDER_NOTIFY_EMAIL || st.email); return { ok: true, url: `${siteUrl()}/order-confirmation/${encodeURIComponent(orderId)}?paid=1` }; }
+    if (!(o.summary.total > 0)) { const st = await getSiteSettings(); await markPaid(db, orderId, { id: `free-${orderId}`, amount_total: 0 }, brandOf(st), notifyEmail(st), st.auto_email_invoice); return { ok: true, url: `${siteUrl()}/order-confirmation/${encodeURIComponent(orderId)}?paid=1` }; }
     const r = await createCheckoutSession(o, siteUrl());
     if (!r.ok) { console.error("stripe session failed:", r.message); return { ok: false, message: "We could not open the payment page. Please try again in a moment." }; }
     await db.from("orders").update({ data: { ...o, payment: { ...(o.payment ?? {}), provider: "stripe", session_id: r.id } } }).eq("id", orderId); // remember the newest payment page
