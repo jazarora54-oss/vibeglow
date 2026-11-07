@@ -16,7 +16,7 @@ export interface Product {
   images: string[]; visual: { kind: ProductVisualKind; label: string; color: string };
   tags: ("best-seller" | "new" | "sale" | "featured")[]; variants?: ProductVariant[]; stock: number; created_at: string; /** units really ordered (not cancelled / test); filled in from the database */ sold_count?: number;
   // SEO + eBay-style details + ranking (all optional)
-  seo_title?: string; seo_description?: string; seo_keywords?: string; /** true = ask Google not to list this product */ seo_noindex?: boolean; specifics?: { name: string; value: string }[]; sort_priority?: number;
+  seo_title?: string; seo_description?: string; seo_keywords?: string; /** true = ask Google not to list this product */ seo_noindex?: boolean; /** question/answer pairs shown on the product page and as FAQ structured data */ faqs?: { q: string; a: string }[]; specifics?: { name: string; value: string }[]; sort_priority?: number;
   gtin?: string; mpn?: string; condition?: string; weight_g?: number; dimensions?: string; country_of_origin?: string; shelf_life?: string;
   // Shipping (per listing, like eBay)
   shipping_mode?: ShipMode; shipping_flat_price?: number; shipping_extra_price?: number; handling_days?: number; pkg_length_in?: number; pkg_width_in?: number; pkg_height_in?: number;

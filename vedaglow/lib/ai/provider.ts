@@ -1,6 +1,6 @@
 /** Switchable AI provider. Keys live ONLY in server environment variables (Netlify); they are never sent to the browser. */
 export type ProviderName = "anthropic" | "openai" | "gemini";
-export interface AiConfig { provider: ProviderName; model: string; key: string; base: string; dailyLimit: number }
+export interface AiConfig { provider: ProviderName; model: string; key: string; base: string; dailyLimit: number; monthlyLimit: number }
 export interface AiResult { ok: boolean; text?: string; error?: string; inputTokens?: number; outputTokens?: number }
 export interface AiImage { mime: "image/webp" | "image/jpeg" | "image/png"; base64: string }
 
@@ -14,7 +14,7 @@ export function aiConfig(env: Record<string, string | undefined> = process.env):
   const key = (env[KEYS[p]] || "").trim(); if (!key) return null;
   const model = (env.AI_MODEL || DEFAULT_MODEL[p] || "").trim(); if (!model) return null;
   const lim = Math.floor(Number(env.AI_DAILY_LIMIT)); const base = (env.AI_API_BASE || BASES[p]).replace(/\/+$/, "");
-  return { provider: p, model, key, base, dailyLimit: Number.isFinite(lim) && lim >= 0 ? lim : 20 };
+  const mlim = Math.floor(Number(env.AI_MONTHLY_LIMIT)); return { provider: p, model, key, base, dailyLimit: Number.isFinite(lim) && lim >= 0 ? lim : 20, monthlyLimit: Number.isFinite(mlim) && mlim >= 0 ? mlim : 300 };
 }
 export const aiStatusText = (env: Record<string, string | undefined> = process.env) => {
   const p = (env.AI_PROVIDER || "anthropic").trim().toLowerCase(); if (!(p in KEYS)) return `Unknown AI_PROVIDER "${p}". Use anthropic, openai or gemini.`;
@@ -47,4 +47,24 @@ export async function generate(cfg: AiConfig, system: string, user: string, imag
     if (status !== 200) return { ok: false, error: errOf(status, json) };
     return { ok: true, text: (json?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? "").join(""), inputTokens: json?.usageMetadata?.promptTokenCount, outputTokens: json?.usageMetadata?.candidatesTokenCount };
   } catch (e) { return { ok: false, error: e instanceof Error && e.name === "AbortError" ? "The AI took too long. Please try again." : "Could not reach the AI provider." }; }
+}
+
+/** Checks the key (and, for Gemini, lists the model names this key can really use). Sends no photo and costs nothing on free tiers. */
+export async function testAi(cfg: AiConfig): Promise<{ ok: boolean; message: string }> {
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
+    try {
+      if (cfg.provider === "gemini") {
+        const r = await fetch(`${cfg.base}/v1beta/models?pageSize=100`, { headers: { "x-goog-api-key": cfg.key }, signal: ctl.signal, cache: "no-store" }); const j: any = await r.json().catch(() => null);
+        if (r.status !== 200) return { ok: false, message: errOf(r.status, j) + " Check GEMINI_API_KEY." };
+        const names: string[] = (j?.models ?? []).filter((m: any) => (m.supportedGenerationMethods ?? []).includes("generateContent")).map((m: any) => String(m.name).replace(/^models\//, ""));
+        const has = names.includes(cfg.model);
+        return { ok: has, message: has ? `Key works. Model "${cfg.model}" is available.` : `Key works, but model "${cfg.model}" is not available to it. Set AI_MODEL to one of: ${names.slice(0, 25).join(", ") || "(none listed)"}.` };
+      }
+      const url = cfg.provider === "anthropic" ? `${cfg.base}/v1/models` : `${cfg.base}/v1/models`; const headers: Record<string, string> = cfg.provider === "anthropic" ? { "x-api-key": cfg.key, "anthropic-version": "2023-06-01" } : { Authorization: `Bearer ${cfg.key}` };
+      const r = await fetch(url, { headers, signal: ctl.signal, cache: "no-store" }); const j: any = await r.json().catch(() => null);
+      if (r.status !== 200) return { ok: false, message: errOf(r.status, j) + ` Check ${KEYS[cfg.provider]}.` };
+      return { ok: true, message: `Key accepted by ${cfg.provider}. Model in use: ${cfg.model}.` };
+    } finally { clearTimeout(t); }
+  } catch { return { ok: false, message: "Could not reach the AI provider." }; }
 }

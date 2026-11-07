@@ -14,7 +14,7 @@ export default function BannerManager({ banners }: { banners: Banner[] }) {
   const save = () => edit && start(async () => { const r = await saveBanner(edit); if (!r.ok) { setMsg(r.message ?? "Could not save."); return; } setMsg(""); setEdit(null); router.refresh(); });
   const del = (id: string) => { if (confirm("Delete this banner?")) start(async () => { await deleteBanner(id); router.refresh(); }); };
   return (<div className="space-y-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="font-display text-4xl font-semibold text-forest">Homepage banners</h1>{!edit && <button className={btn} onClick={() => setEdit(blank(banners.length))}>+ Add banner</button>}</div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="font-display text-4xl font-semibold text-forest">Homepage banners</h1>{!edit && <div className="flex gap-2"><a href="/admin/banner-studio" className={btn}>✨ Banner Studio (auto design)</a><button className={btn2} onClick={() => setEdit(blank(banners.length))}>+ Add banner by hand</button></div>}</div>
     <p className="text-sm text-ink/60">Banners that are on (and inside their dates, if you set any) replace the default hero on the homepage and slide automatically. Best size: wide image about 1600 × 600 px. You can upload a normal image, an animated <b>GIF</b>, or a short <b>MP4/WebM video</b> (up to 25 MB; it plays silently on a loop). With no active banners, the original hero is shown.</p>
     {edit && <section className={card}><h2 className="mb-4 font-display text-2xl font-semibold text-forest">{edit.id ? "Edit banner" : "New banner"}</h2>
       <div className="grid gap-4 sm:grid-cols-2">

@@ -1,8 +1,14 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { serverClient } from "@/lib/supabase/server";
-import { productToRow, slugify, autoSeo, type ProductInput } from "@/lib/data/mappers";
+import { serverClient, serviceClient } from "@/lib/supabase/server";
+import { productToRow, slugify, autoSeo, cleanFaqs, type ProductInput } from "@/lib/data/mappers";
+import { findDuplicates, type DupHit } from "@/lib/ai/duplicate";
+import { after } from "next/server";
+import { testMeta } from "@/lib/social/meta";
+import { buildCaption, dedupeKey, dripTimes, processQueue, type Platform } from "@/lib/social/queue";
+import { loadCfg, supabaseStore } from "@/lib/social/store";
+import { toSocialJpeg } from "@/lib/social/photo";
 import { getLocalProducts } from "@/lib/data/products";
 import { DEFAULT_FAQS, DEFAULT_PAGES, isPageSlug, type SiteSettings } from "@/lib/data/defaults";
 import { stateCode, trackingUrl, CARRIERS } from "@/lib/shipping/rules";
@@ -18,7 +24,7 @@ import { audit } from "@/lib/audit";
 import { adjustStock } from "@/lib/orderStock";
 import { colorIssues, contrast, isHex } from "@/lib/theme";
 import { safeLink, topbarLines } from "@/lib/topbar";
-import { aiConfig, generate } from "@/lib/ai/provider";
+import { testAi, aiConfig, aiStatusText, generate } from "@/lib/ai/provider";
 import { parseDraft, scanClaims, SYSTEM_PROMPT, userPrompt, cleanUrls, SENSITIVE, type AiDraft } from "@/lib/ai/draft";
 import { gaId, pixelId, verifyToken } from "@/lib/seo";
 import { checkConnection, refundPayment } from "@/lib/payments/stripe";
@@ -53,16 +59,27 @@ export async function saveProduct(input: ProductInput): Promise<Res> {
     const slug = slugify(input.slug || input.name); if (!slug) return { ok: false, message: "Slug is required." };
     const id = input.id || `p_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const row = productToRow({ ...input, id, slug });
+    let wasActive = false; if (input.id) { const { data: prev } = await sb.from("products").select("is_active").eq("id", id).maybeSingle(); wasActive = Boolean(prev?.is_active); }
     const { error } = await sb.from("products").upsert(row, { onConflict: "id" });
     if (error) return { ok: false, message: dbMsg(error.message) };
-    await audit(sb, input.id ? "product.update" : "product.create", `${input.name} (${id}), price ${input.price}`); refresh(); return { ok: true, id };
+    await audit(sb, input.id ? "product.update" : "product.create", `${input.name} (${id}), price ${input.price}`); refresh();
+    if (input.is_active && !wasActive) await maybeAutoPost(id); // only when Social "Auto post" is ON; never blocks saving
+    return { ok: true, id };
   } catch (e) { return fail(e); }
+}
+/** Social "Auto post new products": queues (never posts inline). Does nothing unless the owner switched it ON and connected the accounts. */
+async function maybeAutoPost(productId: string) {
+  try {
+    const st = await getSiteSettings(); if (!st.social_auto_post) return; const db = serviceClient(); if (!db) return; const cfg = await loadCfg(db); if (!cfg) return;
+    await queuePosts(db, { productIds: [productId], platforms: cfg.igUserId ? ["facebook", "instagram"] : ["facebook"], source: "auto" });
+    after(async () => { try { const d = serviceClient(); const c = d && (await loadCfg(d)); if (d) await processQueue(supabaseStore(d), c, { limit: 2 }); } catch { /* the 15-minute job picks it up */ } });
+  } catch { /* social problems must never break saving a product */ }
 }
 export async function deleteProduct(id: string): Promise<Res> {
   try { const sb = await admin(); const { error } = await sb.from("products").delete().eq("id", id); if (error) return { ok: false, message: error.message }; await audit(sb, "product.delete", id); refresh(); return { ok: true }; } catch (e) { return fail(e); }
 }
 export async function setProductActive(id: string, active: boolean): Promise<Res> {
-  try { const sb = await admin(); const { error } = await sb.from("products").update({ is_active: active, updated_at: new Date().toISOString() }).eq("id", id); if (error) return { ok: false, message: error.message }; await audit(sb, active ? "product.activate" : "product.deactivate", id); refresh(); return { ok: true }; } catch (e) { return fail(e); }
+  try { const sb = await admin(); const { data: prevRow } = await sb.from("products").select("is_active").eq("id", id).maybeSingle(); const { error } = await sb.from("products").update({ is_active: active, updated_at: new Date().toISOString() }).eq("id", id); if (error) return { ok: false, message: error.message }; await audit(sb, active ? "product.activate" : "product.deactivate", id); refresh(); if (active && !prevRow?.is_active) await maybeAutoPost(id); return { ok: true }; } catch (e) { return fail(e); }
 }
 /** One-click: copies the 12 built-in demo products into the database (skips ones already there). */
 export async function importDemoProducts(): Promise<Res> {
@@ -601,6 +618,7 @@ export async function setStock(productId: string, variantId: string, qty: number
 }
 
 // ---------- AI Product Creator (suggests only; the owner decides) ----------
+const utcMonthStart = () => { const d = new Date(); d.setUTCDate(1); d.setUTCHours(0, 0, 0, 0); return d.toISOString(); };
 const utcDayStart = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.toISOString(); };
 export async function generateProductDraft(input: { image_base64: string; mime: string; price: number; notes?: string; urls?: string; category_options: string[] }): Promise<Res & { draft?: AiDraft; needs?: string[]; warnings?: string[]; left?: number }> {
   try {
@@ -611,6 +629,8 @@ export async function generateProductDraft(input: { image_base64: string; mime: 
     const cats = (input.category_options ?? []).map(String).filter(c => /^[a-z0-9-]{1,60}$/.test(c)).slice(0, 40); if (!cats.length) return { ok: false, message: "No categories found. Add a category first." };
     const { count } = await sb.from("ai_usage").select("id", { count: "exact", head: true }).gte("created_at", utcDayStart());
     const used = count ?? 0; if (used >= cfg.dailyLimit) return { ok: false, message: `Daily AI limit reached (${cfg.dailyLimit} per day). It resets at midnight UTC. Change AI_DAILY_LIMIT in Netlify if you want more.`, left: 0 };
+    const { count: monthCount } = await sb.from("ai_usage").select("id", { count: "exact", head: true }).gte("created_at", utcMonthStart());
+    if ((monthCount ?? 0) >= cfg.monthlyLimit) return { ok: false, message: `Monthly AI limit reached (${cfg.monthlyLimit} drafts this month). This protects you from surprise bills. Raise AI_MONTHLY_LIMIT in Netlify if you want more.`, left: 0 };
     const { data: { user } } = await sb.auth.getUser(); const urls = cleanUrls(input.urls ?? "");
     const r = await generate(cfg, SYSTEM_PROMPT, userPrompt({ categories: cats, notes: input.notes, urls }), { mime: input.mime as "image/webp", base64: b64 });
     await sb.from("ai_usage").insert({ provider: cfg.provider, model: cfg.model, ok: r.ok, input_tokens: r.inputTokens ?? null, output_tokens: r.outputTokens ?? null, error: r.ok ? null : (r.error ?? "").slice(0, 300), by_email: user?.email ?? null });
@@ -620,23 +640,55 @@ export async function generateProductDraft(input: { image_base64: string; mime: 
     await audit(sb, "ai.draft", `${d.draft!.name} via ${cfg.provider}`); return { ok: true, draft: d.draft, needs: d.needs, warnings: d.warnings, left };
   } catch (e) { return fail(e); }
 }
-export async function createAiProduct(input: { draft: AiDraft; price: number; images: string[]; thumb?: string; publish: boolean; acknowledged: boolean; notes?: string; urls?: string; needs: string[] }): Promise<Res> {
+/** Looks for products with the same / similar name or the same photo. The owner decides what to do with the answer. */
+export async function checkDuplicates(name: string, imageHash?: string): Promise<Res & { hits?: DupHit[] }> {
+  try {
+    const sb = await admin(); const hash = /^[0-9a-f]{16}$/.test(String(imageHash ?? "")) ? String(imageHash) : undefined;
+    const [{ data: prods }, hs] = await Promise.all([sb.from("products").select("id,name,sku").limit(5000), hash ? sb.from("product_ai_drafts").select("product_id,image_hash").not("image_hash", "is", null).limit(5000) : Promise.resolve({ data: [] as any[] })]);
+    const hits = findDuplicates(String(name ?? ""), hash, (prods ?? []) as any[], ((hs as any).data ?? []) as any[]); return { ok: true, hits };
+  } catch (e) { return fail(e); }
+}
+export async function saveAiSettings(v: { ai_auto_publish: boolean }): Promise<Res> {
+  try { const sb = await admin(); const prev = await getSiteSettings(); const data: SiteSettings = { ...prev, ai_auto_publish: Boolean(v.ai_auto_publish) };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" }); if (error) return { ok: false, message: error.message };
+    await audit(sb, "settings.ai", `auto publish ${data.ai_auto_publish ? "ON" : "OFF"}`); revalidatePath("/admin/ai-product"); return { ok: true, message: data.ai_auto_publish ? "Auto Publish is ON. Products publish only when nothing needs verification." : "Auto Publish is OFF. You always review first." };
+  } catch (e) { return fail(e); }
+}
+export async function saveBannerSettings(v: { banner_auto_upload: boolean }): Promise<Res> {
+  try { const sb = await admin(); const prev = await getSiteSettings(); const data: SiteSettings = { ...prev, banner_auto_upload: Boolean(v.banner_auto_upload) };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" }); if (error) return { ok: false, message: error.message };
+    await audit(sb, "settings.banner_auto", data.banner_auto_upload ? "ON" : "OFF"); revalidatePath("/admin/banner-studio"); return { ok: true, message: data.banner_auto_upload ? "Auto Upload is ON: new banners go live on the homepage straight away." : "Auto Upload is OFF: new banners are saved hidden until you switch them on." };
+  } catch (e) { return fail(e); }
+}
+export async function testAiConnection(): Promise<Res> { try { await admin(); const cfg = aiConfig(); if (!cfg) return { ok: false, message: aiStatusText() || "AI is not connected." }; const r = await testAi(cfg); return { ok: r.ok, message: r.message }; } catch (e) { return fail(e); } }
+export async function createAiProduct(input: { draft: AiDraft; price: number; images: string[]; thumb?: string; publish: boolean; acknowledged: boolean; notes?: string; urls?: string; needs: string[]; imageHash?: string; /** true = the one-click flow: publishes only if Auto Publish is ON and nothing needs checking */ auto?: boolean; allowDuplicate?: boolean }): Promise<Res> {
   try {
     const sb = await admin(); const d = input.draft; const price = Math.round(Number(input.price) * 100) / 100;
     if (!d?.name?.trim()) return { ok: false, message: "Product name is required." }; if (!(price > 0)) return { ok: false, message: "Enter a valid price." };
     const images = (input.images ?? []).filter(u => typeof u === "string" && /^https:\/\//.test(u)).slice(0, 8); if (!images.length) return { ok: false, message: "Add the photo first." };
     // Publishing is only possible after the owner confirms the checklist. Checked again here on the server (the browser is not trusted).
     const stillNeeds = SENSITIVE.filter(f => !String((d as any)[f] ?? "").trim()); const claims = scanClaims([d.name, d.short_description, d.description, d.benefits, d.seo_title, d.seo_description].join(" \n "));
-    if (input.publish && (stillNeeds.length || claims.length) && !input.acknowledged) return { ok: false, message: `Not published: confirm the checklist first (${[...stillNeeds.map(f => f.replace(/_/g, " ") + " is empty"), ...claims.map(c => "wording: " + c)].join("; ")}).` };
+    const hash = /^[0-9a-f]{16}$/.test(String(input.imageHash ?? "")) ? String(input.imageHash) : undefined;
+    const dup = input.allowDuplicate ? [] : ((await checkDuplicates(d.name, hash)).hits ?? []);
+    let publish = Boolean(input.publish); let note = "";
+    if (input.auto) {
+      const st = await getSiteSettings(); publish = false;
+      if (!st.ai_auto_publish) note = "Auto Publish is OFF, so it was saved as a hidden draft.";
+      else if (stillNeeds.length || claims.length) note = `Auto Publish stopped: ${[...stillNeeds.map(f => f.replace(/_/g, " ") + " needs verification"), ...claims.map(c => "wording: " + c)].join("; ")}. Saved as a hidden draft.`;
+      else if (dup.length) note = `Auto Publish stopped: looks like a duplicate of "${dup[0].name}" (${dup[0].why}). Saved as a hidden draft.`;
+      else publish = true;
+    } else if (publish && dup.length) return { ok: false, message: `Not saved: this looks like a duplicate of "${dup[0].name}" (${dup[0].why}). Open that product, or tick "Save anyway".` };
+    if (publish && !input.auto && (stillNeeds.length || claims.length) && !input.acknowledged) return { ok: false, message: `Not published: confirm the checklist first (${[...stillNeeds.map(f => f.replace(/_/g, " ") + " is empty"), ...claims.map(c => "wording: " + c)].join("; ")}).` };
     const base = slugify(d.name); let slug = base; const { data: clash } = await sb.from("products").select("slug").like("slug", `${base}%`).limit(50); const taken = new Set((clash ?? []).map(r => r.slug)); for (let i = 2; taken.has(slug); i++) slug = `${base}-${i}`;
     const seo = autoSeoFor(d);
     const p: ProductInput = { id: "", slug, name: d.name.trim().slice(0, 120), brand: d.brand || undefined, product_type: d.product_type || undefined, category: d.category as ProductInput["category"], short_description: d.short_description, description: d.description || undefined, ingredients: d.ingredients || undefined, how_to_use: d.how_to_use || undefined, benefits: d.benefits || undefined, size_quantity: d.size_quantity || undefined, suitable_for: d.suitable_for || undefined,
-      price, images, visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: 0, is_active: Boolean(input.publish), sort_priority: 0, condition: "New", specifics: [], seo_title: d.seo_title || seo.title, seo_description: d.seo_description || seo.description, seo_keywords: d.seo_keywords || seo.keywords };
-    const r = await saveProduct(p); if (!r.ok) return r;
+      price, images, visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: 0, is_active: publish, faqs: cleanFaqs(d.faqs), sort_priority: 0, condition: "New", specifics: [], seo_title: d.seo_title || seo.title, seo_description: d.seo_description || seo.description, seo_keywords: d.seo_keywords || seo.keywords };
+    let r = await saveProduct(p); if (!r.ok && /faqs/i.test(r.message ?? "")) r = await saveProduct({ ...p, faqs: undefined }); // migration-15 not run yet: save without FAQs
+    if (!r.ok) return r;
     const { data: { user } } = await sb.auth.getUser(); const cfg = aiConfig();
-    await sb.from("product_ai_drafts").insert({ product_id: r.id, provider: cfg?.provider ?? null, model: cfg?.model ?? null, price, notes: (input.notes ?? "").slice(0, 1200), source_urls: cleanUrls(input.urls ?? ""), suggestion: { ...d, thumb: input.thumb ?? null }, needs_verification: [...stillNeeds, ...claims.map(c => "claim:" + c)], published: Boolean(input.publish), by_email: user?.email ?? null });
+    await sb.from("product_ai_drafts").insert({ product_id: r.id, provider: cfg?.provider ?? null, model: cfg?.model ?? null, price, notes: (input.notes ?? "").slice(0, 1200), source_urls: cleanUrls(input.urls ?? ""), suggestion: { ...d, thumb: input.thumb ?? null }, needs_verification: [...stillNeeds, ...claims.map(c => "claim:" + c)], published: publish, image_hash: hash ?? null, by_email: user?.email ?? null });
     revalidatePath("/admin/products"); revalidatePath("/admin/ai-product");
-    return { ok: true, id: r.id, message: input.publish ? "Published. Remember to set the stock in Inventory." : "Saved as a draft (hidden from the shop). Open it in Products to finish and publish." };
+    return { ok: true, id: r.id, message: publish ? "Published. Remember to set the stock in Inventory." : `${note ? note + " " : ""}Saved as a draft (hidden from the shop). Open it in Products to finish and publish.` };
   } catch (e) { return fail(e); }
 }
 function autoSeoFor(d: AiDraft) { return autoSeo({ name: d.name, brand: d.brand || undefined, short_description: d.short_description, description: d.description, product_type: d.product_type || undefined, category: d.category as ProductInput["category"] }); }
@@ -684,3 +736,63 @@ export async function replyToMessage(id: string, reply: string): Promise<Res> {
     return { ok: true, message: "Reply emailed ✓" };
   } catch (e) { return fail(e); }
 }
+
+
+// ───────────── Social Media Manager (Facebook Page + Instagram, official Meta API) ─────────────
+type SDb = NonNullable<ReturnType<typeof serviceClient>>;
+interface QueueIn { productIds: string[]; platforms: Platform[]; caption?: string; imageUrl?: string; startAt?: string; perDay?: number; repost?: boolean; source: "manual" | "auto" | "backlog" }
+/** Inserts queue rows. One live/posted row per product+platform (unless repost). Returns what happened, never claims anything is posted. */
+async function queuePosts(db: SDb, q: QueueIn): Promise<{ queued: number; skipped: number; failed: string[] }> {
+  const out = { queued: 0, skipped: 0, failed: [] as string[] }; const ids = [...new Set(q.productIds)].slice(0, 500); if (!ids.length || !q.platforms.length) return out;
+  const { data: prods } = await db.from("products").select("id,name,slug,price,short_description,category,images,is_active").in("id", ids); const byId = new Map((prods ?? []).map((p: any) => [p.id, p]));
+  const start = q.startAt ? new Date(q.startAt) : new Date(); const times = q.source === "backlog" || ids.length > 1 ? dripTimes(ids.length, Number.isNaN(start.getTime()) ? new Date() : start, q.perDay ?? 2) : [Number.isNaN(start.getTime()) ? new Date() : start];
+  const site = (await import("@/lib/email")).baseUrl();
+  for (let i = 0; i < ids.length; i++) {
+    const p: any = byId.get(ids[i]); if (!p) { out.failed.push(`${ids[i]}: product not found`); continue; } if (!p.is_active) { out.failed.push(`${p.name}: hidden products are not posted`); continue; }
+    let img = q.imageUrl || ""; if (!img) { const first = (p.images ?? [])[0]; if (!first) { out.failed.push(`${p.name}: no picture`); continue; } const j = await toSocialJpeg(db, first); if (!j.ok) { out.failed.push(`${p.name}: ${j.error}`); continue; } img = j.url; }
+    const caption = (q.caption && ids.length === 1 ? q.caption : buildCaption({ name: p.name, short_description: p.short_description, price: Number(p.price), slug: p.slug, category: p.category }, site).caption).slice(0, 2200);
+    for (const platform of q.platforms) {
+      const delayed = times[i].getTime() > Date.now() + 60_000;
+      const { error } = await db.from("social_posts").insert({ product_id: p.id, platform, status: "queued", caption, image_url: img, scheduled_at: delayed ? times[i].toISOString() : null, dedupe_key: dedupeKey(p.id, platform, Boolean(q.repost)), source: q.source });
+      if (error) { if (error.code === "23505") out.skipped++; else out.failed.push(`${p.name}: ${error.message}`); } else out.queued++;
+    }
+  }
+  return out;
+}
+const needDb = () => { const db = serviceClient(); if (!db) throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing in Netlify."); return db; };
+export async function saveSocialConnection(v: { page_id: string; page_token: string; ig_user_id: string }): Promise<Res> {
+  try {
+    const sb = await admin(); const db = needDb(); const pageId = String(v.page_id ?? "").trim(), ig = String(v.ig_user_id ?? "").trim(); let token = String(v.page_token ?? "").trim();
+    if (!/^\d{5,25}$/.test(pageId)) return { ok: false, message: "Facebook Page ID must be numbers only." }; if (ig && !/^\d{5,25}$/.test(ig)) return { ok: false, message: "Instagram account ID must be numbers only." };
+    if (!token) { const { data } = await db.from("social_tokens").select("page_token").eq("id", 1).maybeSingle(); token = data?.page_token ?? ""; } if (!token) return { ok: false, message: "Paste the Page access token." };
+    const t = await testMeta({ pageId, pageToken: token, igUserId: ig || undefined }); if (!t.ok) return { ok: false, message: "Not saved. " + t.message };
+    const { error } = await db.from("social_tokens").upsert({ id: 1, page_id: pageId, page_name: t.pageName ?? null, page_token: token, ig_user_id: ig || null, ig_username: t.igUsername ?? null, updated_at: new Date().toISOString() }, { onConflict: "id" });
+    if (error) return { ok: false, message: /social_tokens/.test(error.message) ? "Run supabase/migration-16.sql first." : error.message };
+    await audit(sb, "social.connect", `${t.pageName ?? pageId}${t.igUsername ? " + @" + t.igUsername : ""}`); revalidatePath("/admin/social"); return { ok: true, message: t.message + " Saved. The token is kept on the server and is never shown again." };
+  } catch (e) { return fail(e); }
+}
+export async function testSocialConnection(): Promise<Res> { try { await admin(); const cfg = await loadCfg(needDb()); if (!cfg) return { ok: false, message: "Not connected yet." }; const t = await testMeta(cfg); return { ok: t.ok, message: t.message }; } catch (e) { return fail(e); } }
+export async function disconnectSocial(): Promise<Res> { try { const sb = await admin(); await needDb().from("social_tokens").delete().eq("id", 1); await audit(sb, "social.disconnect", ""); revalidatePath("/admin/social"); return { ok: true, message: "Disconnected. Queued posts will fail until you connect again." }; } catch (e) { return fail(e); } }
+export async function saveSocialSettings(v: { social_auto_post: boolean }): Promise<Res> {
+  try { const sb = await admin(); const prev = await getSiteSettings(); const data: SiteSettings = { ...prev, social_auto_post: Boolean(v.social_auto_post) };
+    const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" }); if (error) return { ok: false, message: error.message };
+    await audit(sb, "settings.social_auto", data.social_auto_post ? "ON" : "OFF"); revalidatePath("/admin/social"); return { ok: true, message: data.social_auto_post ? "Auto post is ON: every product you publish from now on is queued for Facebook/Instagram." : "Auto post is OFF." };
+  } catch (e) { return fail(e); }
+}
+export async function queueProductPosts(v: { productIds: string[]; platforms: Platform[]; caption?: string; imageUrl?: string; startAt?: string; perDay?: number; repost?: boolean; backlog?: boolean; postNow?: boolean }): Promise<Res> {
+  try {
+    const sb = await admin(); const db = needDb(); const platforms = (v.platforms ?? []).filter(p => p === "facebook" || p === "instagram"); if (!platforms.length) return { ok: false, message: "Choose Facebook and/or Instagram." };
+    const cfg = await loadCfg(db); if (!cfg) return { ok: false, message: "Connect your Facebook Page first (top of this page)." }; if (platforms.includes("instagram") && !cfg.igUserId) return { ok: false, message: "Instagram is not connected." };
+    if (v.imageUrl && !v.imageUrl.startsWith((process.env.NEXT_PUBLIC_SUPABASE_URL || "~").replace(/\/+$/, "") + "/storage/v1/object/public/")) return { ok: false, message: "The picture must be uploaded through the studio." };
+    const r = await queuePosts(db, { productIds: v.productIds, platforms, caption: v.caption, imageUrl: v.imageUrl, startAt: v.startAt, perDay: v.perDay, repost: v.repost, source: v.backlog ? "backlog" : "manual" });
+    await audit(sb, "social.queue", `${r.queued} queued, ${r.skipped} already posted/queued`); revalidatePath("/admin/social");
+    let posted = ""; if (v.postNow && r.queued) { const s = await processQueue(supabaseStore(db), cfg, { limit: Math.min(2, r.queued) }); posted = ` Posted now: ${s.posted}${s.failed ? `, failed: ${s.failed}` : ""}${s.retryLater ? `, will retry: ${s.retryLater}` : ""}. See the list below for the exact result.`; }
+    return { ok: r.queued > 0 || r.skipped > 0, message: `Queued ${r.queued}${r.skipped ? `, skipped ${r.skipped} (already posted or queued; tick "post again" to repeat)` : ""}.${posted}${r.failed.length ? " Problems: " + r.failed.slice(0, 3).join("; ") : ""}` };
+  } catch (e) { return fail(e); }
+}
+export async function processSocialNow(): Promise<Res> {
+  try { await admin(); const db = needDb(); const cfg = await loadCfg(db); const s = await processQueue(supabaseStore(db), cfg, { limit: 2 }); revalidatePath("/admin/social");
+    return { ok: true, message: s.tried === 0 ? (s.skippedDaily ? "Daily posting limit reached; the rest waits until tomorrow." : "Nothing is due right now.") : `Tried ${s.tried}: posted ${s.posted}, failed ${s.failed}, retry later ${s.retryLater}. Press again for more.` }; } catch (e) { return fail(e); }
+}
+export async function retrySocialPost(id: number): Promise<Res> { try { const sb = await admin(); const { error } = await needDb().from("social_posts").update({ status: "queued", attempts: 0, last_error: null, scheduled_at: null, updated_at: new Date().toISOString() }).eq("id", id).eq("status", "failed"); if (error) return { ok: false, message: /dedupe|duplicate/i.test(error.message) ? "Already queued or posted." : error.message }; await audit(sb, "social.retry", String(id)); revalidatePath("/admin/social"); return { ok: true, message: "Queued again." }; } catch (e) { return fail(e); } }
+export async function cancelSocialPost(id: number): Promise<Res> { try { const sb = await admin(); await needDb().from("social_posts").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", id).eq("status", "queued"); await audit(sb, "social.cancel", String(id)); revalidatePath("/admin/social"); return { ok: true, message: "Cancelled." }; } catch (e) { return fail(e); } }

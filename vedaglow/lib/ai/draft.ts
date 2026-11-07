@@ -1,7 +1,7 @@
 /** Prompt + safe parsing for the AI Product Creator. The AI only SUGGESTS; nothing here publishes anything. */
 export const SENSITIVE = ["ingredients", "how_to_use", "benefits", "size_quantity", "suitable_for"] as const;
 export type Sensitive = (typeof SENSITIVE)[number];
-export interface AiDraft { name: string; brand: string; product_type: string; category: string; short_description: string; description: string; ingredients: string; how_to_use: string; benefits: string; size_quantity: string; suitable_for: string; seo_title: string; seo_description: string; seo_keywords: string }
+export interface AiDraft { name: string; brand: string; product_type: string; category: string; short_description: string; description: string; ingredients: string; how_to_use: string; benefits: string; size_quantity: string; suitable_for: string; seo_title: string; seo_description: string; seo_keywords: string; /** short, honest Q&A built only from the facts above (max 5) */ faqs: { q: string; a: string }[]; /** accessible picture description */ image_alt: string }
 export interface DraftResult { ok: boolean; error?: string; draft?: AiDraft; /** fields the owner must check/fill before publishing */ needs: string[]; /** risky wording found (health / certification claims) */ warnings: string[] }
 
 export const SYSTEM_PROMPT = `You write product-listing drafts for a small Ayurvedic / natural skin- and hair-care web shop in the USA, from ONE product photo.
@@ -11,7 +11,7 @@ STRICT RULES:
 - Do not promise results. Use calm, honest, plain marketing language. No cure / treat / heal / prevent claims.
 - "from_label" must list exactly which of these fields you copied from the label or the owner's notes: ingredients, how_to_use, benefits, size_quantity, suitable_for. Leave out any field you are unsure about.
 - The owner sets the price. Never mention a price.
-- Reply with ONE JSON object only, no other text, with keys: name, brand, product_type, category, short_description (max 160 chars), description (max 900 chars, 2 short paragraphs), ingredients, how_to_use, benefits, size_quantity, suitable_for, seo_title (max 60), seo_description (max 155), seo_keywords (comma separated, max 8), from_label (array), uncertain (array of anything else you were unsure about).`;
+- Reply with ONE JSON object only, no other text, with keys: name, brand, product_type, category, short_description (max 160 chars), description (max 900 chars, 2 short paragraphs), ingredients, how_to_use, benefits, size_quantity, suitable_for, seo_title (max 60), seo_description (max 155), seo_keywords (comma separated, max 8), faqs (array of up to 5 objects {q, a}: practical questions a shopper would ask, answered ONLY from facts visible on the label or in the owner's notes; if a fact is unknown the answer must say the label or shop should be checked; never health or result claims), image_alt (max 120 chars, what the photo literally shows), from_label (array), uncertain (array of anything else you were unsure about).`;
 
 export const userPrompt = (p: { categories: string[]; notes?: string; urls?: string[] }) =>
   `Allowed category values: ${p.categories.join(", ")}. Pick the closest one.\n` +
@@ -39,10 +39,11 @@ export function parseDraft(raw: string, categories: string[]): DraftResult {
   const name = clip(j.name, 120); if (!name) return none("The AI could not tell what the product is. Add a note (product name) and try again, or fill the form by hand.");
   const cat = categories.includes(String(j.category)) ? String(j.category) : categories[0] ?? "skin-care";
   const d: AiDraft = { name, brand: clip(j.brand, 80), product_type: clip(j.product_type, 80), category: cat, short_description: clip(j.short_description, 200), description: clipLong(j.description, 1500),
-    ingredients: "", how_to_use: "", benefits: "", size_quantity: "", suitable_for: "", seo_title: clip(j.seo_title, 70), seo_description: clip(j.seo_description, 160), seo_keywords: clip(j.seo_keywords, 200) };
+    ingredients: "", how_to_use: "", benefits: "", size_quantity: "", suitable_for: "", seo_title: clip(j.seo_title, 70), seo_description: clip(j.seo_description, 160), seo_keywords: clip(j.seo_keywords, 200), faqs: [], image_alt: clip(j.image_alt, 140) };
+  d.faqs = (Array.isArray(j.faqs) ? j.faqs : []).slice(0, 5).map((f: any) => ({ q: clip(f?.q, 200), a: clip(f?.a, 600) })).filter((f: { q: string; a: string }) => f.q && f.a && !scanClaims(f.q + " " + f.a).length);
   const needs: string[] = [];
   for (const f of SENSITIVE) { const v = f === "ingredients" || f === "how_to_use" ? clipLong(j[f], 1200) : clip(j[f], 600); if (v && fromLabel.has(f)) d[f] = v; else needs.push(f); } // not on the label / notes = NOT kept, must be verified by the owner
-  const warnings: string[] = []; const text = [d.name, d.short_description, d.description, d.benefits, d.seo_title, d.seo_description].join(" \n ");
+  const warnings: string[] = []; const text = [d.name, d.short_description, d.description, d.benefits, d.seo_title, d.seo_description, ...d.faqs.map(f => f.q + " " + f.a)].join(" \n ");
   for (const w of scanClaims(text)) warnings.push(`Wording check: “${w}” – remove it unless you can prove it.`);
   for (const u of Array.isArray(j.uncertain) ? j.uncertain.slice(0, 6) : []) { const t = clip(u, 120); if (t) warnings.push(`AI was unsure: ${t}`); }
   return { ok: true, draft: d, needs, warnings };
