@@ -43,3 +43,4 @@ Promotional emails (domain + consent chahiye) · custom domain/email (paid, appr
 
 ## Paid cheezein
 Abhi koi nahi. Aage: custom domain, sending domain/email service paid tier, Stripe fees (sirf real sales par) – bina aapki approval ke kuch nahi kharida jayega.
+test
