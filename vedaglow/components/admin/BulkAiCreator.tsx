@@ -8,7 +8,7 @@ import { btn, btn2, card, inp, lbl } from "./ui";
 const OK = ["image/jpeg", "image/png", "image/webp"]; const MAX_ROWS = 10;
 type Row = { id: number; front: File | null; back: File | null; ing: File | null; name: string; price: string; qty: string; size: string; note: string; status: string; state: "idle" | "work" | "ok" | "skip" | "fail" };
 const blank = (id: number): Row => ({ id, front: null, back: null, ing: null, name: "", price: "", qty: "", size: "", note: "", status: "", state: "idle" });
-const empty = (cat: string, name: string, size: string): AiDraft => ({ name, brand: "", product_type: "", category: cat, short_description: "", description: "", ingredients: "", how_to_use: "", benefits: "", size_quantity: size, suitable_for: "", seo_title: "", seo_description: "", seo_keywords: "", faqs: [], image_alt: name });
+const empty = (cat: string, name: string, size: string): AiDraft => ({ name, brand: "", product_type: "", category: cat, short_description: "", description: "", ingredients: "", how_to_use: "", benefits: "", size_quantity: size, suitable_for: "", seo_title: "", seo_description: "", seo_keywords: "", faqs: [], image_alt: name, specifics: [], condition: "New", country_of_origin: "", mpn: "", gtin: "", shelf_life: "" });
 const pickFile = (f?: File | null) => (f && OK.includes(f.type) && f.size <= 10 * 1024 * 1024 ? f : null);
 
 /** List many products in one go: for each row add photos, price, quantity and size. Rows are listed one by one. */
