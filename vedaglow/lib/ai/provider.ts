@@ -51,7 +51,11 @@ export async function generate(cfg: AiConfig, system: string, user: string, imag
       if (status !== 200) return { ok: false, error: errOf(status, json) };
       return { ok: true, text: json?.choices?.[0]?.message?.content ?? "", inputTokens: json?.usage?.prompt_tokens, outputTokens: json?.usage?.completion_tokens };
     }
-    const { status, json } = await post(`${cfg.base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, { "x-goog-api-key": cfg.key }, { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: user }, ...imgs.map(im => ({ inline_data: { mime_type: im.mime, data: im.base64 } }))] }], generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 } });
+    const gbody: any = { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: user }, ...imgs.map(im => ({ inline_data: { mime_type: im.mime, data: im.base64 } }))] }], generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 } };
+    // If the chosen model is busy (503) or missing (404), try other models of the same key before giving up. AI_MODEL_FALLBACK = comma list.
+    const fallbacks = (process.env.AI_MODEL_FALLBACK ?? "gemini-2.5-flash,gemini-2.5-flash-lite").split(",").map(x => x.trim()).filter(x => x && x !== cfg.model);
+    let { status, json } = await post(`${cfg.base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, { "x-goog-api-key": cfg.key }, gbody);
+    for (const m of fallbacks) { if (![503, 404, 500].includes(status)) break; ({ status, json } = await post1(`${cfg.base}/v1beta/models/${encodeURIComponent(m)}:generateContent`, { "x-goog-api-key": cfg.key }, gbody)); }
     if (status !== 200) return { ok: false, error: errOf(status, json) };
     return { ok: true, text: (json?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? "").join(""), inputTokens: json?.usageMetadata?.promptTokenCount, outputTokens: json?.usageMetadata?.candidatesTokenCount };
   } catch (e) { return { ok: false, error: e instanceof Error && e.name === "AbortError" ? "The AI took too long. Please try again." : "Could not reach the AI provider." }; }
