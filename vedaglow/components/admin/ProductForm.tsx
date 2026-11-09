@@ -10,7 +10,8 @@ import { lbOzToG, shippingBadge, splitLbOz, weightText, DEFAULT_HANDLING_DAYS } 
 import ImageUploader from "./ImageUploader";
 import { btn, btn2, btnDanger, card, inp, lbl } from "./ui";
 
-export const emptyProduct = (): ProductInput => ({ id: "", slug: "", name: "", short_description: "", category: "skin-care", price: 0, images: [], visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: 0, is_active: true, sort_priority: 0, condition: "New", specifics: [] });
+const SPEC_STD = ["Brand", "Type", "Suitable For", "Department", "Color", "Hair Color Shade", "Product Line", "Formulation", "Features", "Active Ingredients", "Key Ingredients", "Hair Type", "Skin Type", "Scent", "Volume", "Unit Quantity", "Unit Type", "Body Area", "Package Type", "Period After Opening", "California Prop 65 Warning"];
+export const emptyProduct = (): ProductInput => ({ id: "", slug: "", name: "", short_description: "", category: "skin-care", price: 0, images: [], visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: 0, is_active: true, sort_priority: 0, condition: "New", specifics: SPEC_STD.map(name => ({ name, value: "" })) });
 const TAGS: Product["tags"][number][] = ["new", "best-seller", "featured", "sale"];
 const KINDS = ["bottle", "jar", "tube", "dropper", "pump"] as const;
 const SPEC_IDEAS = ["Type", "Suitable For", "Department", "Color", "Hair Color Shade", "Product Line", "Formulation", "Features", "Active Ingredients", "Key Ingredients", "Hair Type", "Skin Type", "Scent", "Volume", "Unit Quantity", "Unit Type", "Body Area", "Package Type", "Period After Opening", "California Prop 65 Warning", "Free from", "Certification", "Target age"];
@@ -29,6 +30,9 @@ export default function ProductForm({ initial, isNew, defaultFlat = 5.99, catego
   const specifics = p.specifics ?? [];
   const setSpec = (i: number, patch: Partial<{ name: string; value: string }>) => set("specifics", specifics.map((x, k) => k === i ? { ...x, ...patch } : x));
   const addSpec = (name = "") => set("specifics", [...specifics, { name, value: "" }]);
+  const addAllSpecs = () => set("specifics", [...specifics, ...SPEC_STD.filter(n => !specifics.some(x => x.name.trim().toLowerCase() === n.toLowerCase())).map(name => ({ name, value: "" }))]);
+  const fromBasics = () => { const want: [string, string | undefined][] = [["Brand", p.brand], ["Type", p.product_type], ["Suitable For", p.suitable_for], ["Volume", p.size || p.size_quantity], ["Key Ingredients", undefined]]; const next = [...specifics];
+    for (const [n, v] of want) { const val = (v ?? "").trim(); if (!val) continue; const i = next.findIndex(x => x.name.trim().toLowerCase() === n.toLowerCase()); if (i < 0) next.push({ name: n, value: val }); else if (!next[i].value.trim()) next[i] = { ...next[i], value: val }; } set("specifics", next); };
   const auto = autoSeo(p); const effT = (p.seo_title ?? "").trim() || auto.title, effD = (p.seo_description ?? "").trim() || auto.description;
   const fillSeo = () => setP(x => ({ ...x, seo_title: auto.title, seo_description: auto.description, seo_keywords: auto.keywords }));
   const checks: [boolean, string][] = [
@@ -112,9 +116,9 @@ export default function ProductForm({ initial, isNew, defaultFlat = 5.99, catego
           <div><label className={lbl} htmlFor="coo">Country of origin</label><input id="coo" className={inp} value={p.country_of_origin ?? ""} onChange={e => set("country_of_origin", e.target.value)} /></div>
           <div><label className={lbl} htmlFor="shelf">Shelf life / expiry</label><input id="shelf" className={inp} value={p.shelf_life ?? ""} onChange={e => set("shelf_life", e.target.value)} placeholder="24 months" /></div>
           <div className="sm:col-span-3"><label className={lbl} htmlFor="dim">Dimensions</label><input id="dim" className={inp} value={p.dimensions ?? ""} onChange={e => set("dimensions", e.target.value)} placeholder="12 × 5 × 5 cm (auto-filled from the package size)" /></div></div>
-        <div className="mt-5"><span className={lbl}>Custom item specifics</span>
+        <div className="mt-5"><span className={lbl}>Item specifics (type the value next to each name; empty rows are ignored; add your own with “Add specific”)</span>
           {specifics.map((x, i) => <div key={i} className="mb-2 grid gap-2 sm:grid-cols-[1fr_2fr_auto]"><input aria-label="Specific name" className={inp} placeholder="Name (e.g. Skin type)" value={x.name} onChange={e => setSpec(i, { name: e.target.value })} /><input aria-label="Specific value" className={inp} placeholder="Value (e.g. All skin types)" value={x.value} onChange={e => setSpec(i, { value: e.target.value })} /><button type="button" aria-label="Remove" onClick={() => set("specifics", specifics.filter((_, k) => k !== i))} className="p-2 text-red-700"><Trash2 size={18} /></button></div>)}
-          <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={() => addSpec()} className={`${btn2} flex items-center gap-1`}><Plus size={16} />Add specific</button>
+          <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={() => addSpec()} className={`${btn2} flex items-center gap-1`}><Plus size={16} />Add specific</button><button type="button" onClick={addAllSpecs} className={btn2}>Add all eBay fields</button><button type="button" onClick={fromBasics} className={btn2}>Copy from details above</button>
             <span className="text-xs text-ink/50">Quick add:</span>{SPEC_IDEAS.filter(n => !specifics.some(x => x.name === n)).map(n => <button key={n} type="button" onClick={() => addSpec(n)} className="rounded-full border border-forest/20 bg-white px-3 py-1 text-xs text-forest hover:bg-forest-100">{n}</button>)}</div></div></section>
 
       <section className={card}><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-display text-2xl font-semibold text-forest">Google search (SEO) &amp; ranking</h2><p className="text-sm text-ink/60">Leave search fields empty and they are written for you automatically when you save.</p></div><button type="button" onClick={fillSeo} className={btn2}>Auto-fill search text</button></div>

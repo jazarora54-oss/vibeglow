@@ -27,12 +27,16 @@ const blank = (v?: string) => (v && v.trim() ? v.trim() : null);
 const trim = (t: string, n: number) => (t.length <= n ? t : t.slice(0, n - 1).trimEnd() + "…");
 const CAT_NAMES: Record<string, string> = { "skin-care": "Skin Care", "hair-care": "Hair Care", "body-care": "Body Care", "health-wellness": "Health & Wellness", "oral-care": "Oral Care" };
 /** SEO text is filled automatically when the admin leaves it empty. */
-export function autoSeo(p: Pick<ProductInput, "name" | "brand" | "short_description" | "description" | "product_type" | "category">) {
-  const brandPart = p.brand && !p.name.toLowerCase().includes(p.brand.toLowerCase()) ? ` – ${p.brand}` : "";
-  const title = trim(`${p.name}${brandPart} | VEDAGLOW`, 70);
+export function autoSeo(p: Pick<ProductInput, "name" | "brand" | "short_description" | "description" | "product_type" | "category"> & Partial<Pick<ProductInput, "specifics" | "size" | "size_quantity" | "suitable_for">>) {
+  const sp = (n: string) => (p.specifics ?? []).find(x => x.name.trim().toLowerCase() === n.toLowerCase())?.value?.trim() || "";
+  const size = (p.size || p.size_quantity || sp("Volume") || "").trim(); const lower = p.name.toLowerCase();
+  const brandPart = p.brand && !lower.includes(p.brand.toLowerCase()) ? ` – ${p.brand}` : "";
+  const sizePart = size && size.length <= 14 && !lower.includes(size.toLowerCase()) ? ` ${size}` : "";
+  const title = trim(`${p.name}${sizePart}${brandPart} | VEDAGLOW`, 70);
   const base = (p.short_description || p.description || "").replace(/\s+/g, " ").trim();
-  const description = trim(base ? `${p.name}: ${base}` : `Shop ${p.name} at VEDAGLOW.`, 160);
-  const keywords = [...new Set([p.name, p.product_type, (CAT_NAMES[p.category] ?? p.category.replace(/-/g, " ")), p.brand, "VEDAGLOW"].filter(Boolean) as string[])].join(", ");
+  const extra = [sp("Features"), sp("Formulation"), p.suitable_for?.trim() || sp("Suitable For"), sp("Department")].filter(Boolean).join(", ");
+  const description = trim(base ? `${p.name}: ${base}` : `Shop ${p.name}${sizePart} at VEDAGLOW${extra ? ". " + extra : ""}.`, 160);
+  const dept = sp("Department"); const keywords = [...new Set([p.name, p.product_type, p.brand && p.product_type ? `${p.brand} ${p.product_type}` : "", sp("Type"), sp("Color"), sp("Hair Color Shade"), sp("Formulation"), sizePart.trim(), dept && p.product_type ? `${p.product_type} for ${dept.toLowerCase()}` : "", (CAT_NAMES[p.category] ?? p.category.replace(/-/g, " ")), p.brand, "VEDAGLOW"].map(x => (x ?? "").trim()).filter(Boolean))].slice(0, 12).join(", ");
   return { title, description, keywords };
 }
 /** Admin form -> database row. */
