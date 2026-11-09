@@ -31,19 +31,20 @@ async function post(url: string, headers: Record<string, string>, body: unknown)
 const errOf = (status: number, j: any) => `AI provider error (${status})${j?.error?.message ? ": " + String(j.error.message).slice(0, 160) : j?.error ? ": " + String(typeof j.error === "string" ? j.error : j.error.type ?? "").slice(0, 80) : ""}`;
 
 /** One call: a photo + instructions in, text out. The provider differences stay inside this function. */
-export async function generate(cfg: AiConfig, system: string, user: string, image: AiImage): Promise<AiResult> {
+export async function generate(cfg: AiConfig, system: string, user: string, image: AiImage | AiImage[]): Promise<AiResult> {
+  const imgs = Array.isArray(image) ? image : [image];
   try {
     if (cfg.provider === "anthropic") {
-      const { status, json } = await post(`${cfg.base}/v1/messages`, { "x-api-key": cfg.key, "anthropic-version": "2023-06-01" }, { model: cfg.model, max_tokens: 2000, system, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: image.mime, data: image.base64 } }, { type: "text", text: user }] }] });
+      const { status, json } = await post(`${cfg.base}/v1/messages`, { "x-api-key": cfg.key, "anthropic-version": "2023-06-01" }, { model: cfg.model, max_tokens: 2000, system, messages: [{ role: "user", content: [...imgs.map(im => ({ type: "image", source: { type: "base64", media_type: im.mime, data: im.base64 } })), { type: "text", text: user }] }] });
       if (status !== 200) return { ok: false, error: errOf(status, json) };
       return { ok: true, text: (json?.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join(""), inputTokens: json?.usage?.input_tokens, outputTokens: json?.usage?.output_tokens };
     }
     if (cfg.provider === "openai") {
-      const { status, json } = await post(`${cfg.base}/v1/chat/completions`, { Authorization: `Bearer ${cfg.key}` }, { model: cfg.model, max_tokens: 2000, response_format: { type: "json_object" }, messages: [{ role: "system", content: system }, { role: "user", content: [{ type: "text", text: user }, { type: "image_url", image_url: { url: `data:${image.mime};base64,${image.base64}` } }] }] });
+      const { status, json } = await post(`${cfg.base}/v1/chat/completions`, { Authorization: `Bearer ${cfg.key}` }, { model: cfg.model, max_tokens: 2000, response_format: { type: "json_object" }, messages: [{ role: "system", content: system }, { role: "user", content: [{ type: "text", text: user }, ...imgs.map(im => ({ type: "image_url", image_url: { url: `data:${im.mime};base64,${im.base64}` } }))] }] });
       if (status !== 200) return { ok: false, error: errOf(status, json) };
       return { ok: true, text: json?.choices?.[0]?.message?.content ?? "", inputTokens: json?.usage?.prompt_tokens, outputTokens: json?.usage?.completion_tokens };
     }
-    const { status, json } = await post(`${cfg.base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, { "x-goog-api-key": cfg.key }, { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: user }, { inline_data: { mime_type: image.mime, data: image.base64 } }] }], generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2000 } });
+    const { status, json } = await post(`${cfg.base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, { "x-goog-api-key": cfg.key }, { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: user }, ...imgs.map(im => ({ inline_data: { mime_type: im.mime, data: im.base64 } }))] }], generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2000 } });
     if (status !== 200) return { ok: false, error: errOf(status, json) };
     return { ok: true, text: (json?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? "").join(""), inputTokens: json?.usageMetadata?.promptTokenCount, outputTokens: json?.usageMetadata?.candidatesTokenCount };
   } catch (e) { return { ok: false, error: e instanceof Error && e.name === "AbortError" ? "The AI took too long. Please try again." : "Could not reach the AI provider." }; }

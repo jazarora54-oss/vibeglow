@@ -4,7 +4,7 @@ export type Sensitive = (typeof SENSITIVE)[number];
 export interface AiDraft { name: string; brand: string; product_type: string; category: string; short_description: string; description: string; ingredients: string; how_to_use: string; benefits: string; size_quantity: string; suitable_for: string; seo_title: string; seo_description: string; seo_keywords: string; /** short, honest Q&A built only from the facts above (max 5) */ faqs: { q: string; a: string }[]; /** accessible picture description */ image_alt: string }
 export interface DraftResult { ok: boolean; error?: string; draft?: AiDraft; /** fields the owner must check/fill before publishing */ needs: string[]; /** risky wording found (health / certification claims) */ warnings: string[] }
 
-export const SYSTEM_PROMPT = `You write product-listing drafts for a small Ayurvedic / natural skin- and hair-care web shop in the USA, from ONE product photo.
+export const SYSTEM_PROMPT = `You write product-listing drafts for a small Ayurvedic / natural skin- and hair-care web shop in the USA, from the owner's product photos (photo 1 = front; later photos may be the back label and the ingredients panel; the order is told in the request).
 STRICT RULES:
 - Describe only what you can actually see in the photo (shape, colour, label text, brand name, product type) or what the owner wrote in the notes.
 - NEVER invent ingredients, quantities, sizes, certifications, awards, results, medical or health claims, "clinically proven", "FDA", "organic", "dermatologist tested", or usage instructions. If it is not legible on the label or in the owner's notes, return null for that field.
@@ -13,8 +13,8 @@ STRICT RULES:
 - The owner sets the price. Never mention a price.
 - Reply with ONE JSON object only, no other text, with keys: name, brand, product_type, category, short_description (max 160 chars), description (max 900 chars, 2 short paragraphs), ingredients, how_to_use, benefits, size_quantity, suitable_for, seo_title (max 60), seo_description (max 155), seo_keywords (comma separated, max 8), faqs (array of up to 5 objects {q, a}: practical questions a shopper would ask, answered ONLY from facts visible on the label or in the owner's notes; if a fact is unknown the answer must say the label or shop should be checked; never health or result claims), image_alt (max 120 chars, what the photo literally shows), from_label (array), uncertain (array of anything else you were unsure about).`;
 
-export const userPrompt = (p: { categories: string[]; notes?: string; urls?: string[] }) =>
-  `Allowed category values: ${p.categories.join(", ")}. Pick the closest one.\n` +
+export const userPrompt = (p: { categories: string[]; notes?: string; urls?: string[]; photos?: string[] }) =>
+  (p.photos?.length ? `Photos attached, in order: ${p.photos.join("; ")}. Read ALL the printed text on the back and ingredients photos carefully; ingredients, directions and size that you can read there count as copied from the label.\n` : "") + `Allowed category values: ${p.categories.join(", ")}. Pick the closest one.\n` +
   (p.notes?.trim() ? `Owner's notes (trusted):\n${p.notes.trim().slice(0, 1200)}\n` : "No owner notes.\n") +
   (p.urls?.length ? `Reference links the owner gave (you cannot open them; do not guess what is on them):\n${p.urls.slice(0, 5).join("\n")}\n` : "") + "Write the JSON now.";
 
