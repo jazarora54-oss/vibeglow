@@ -24,7 +24,7 @@ import { audit } from "@/lib/audit";
 import { adjustStock } from "@/lib/orderStock";
 import { colorIssues, contrast, isHex } from "@/lib/theme";
 import { safeLink, topbarLines } from "@/lib/topbar";
-import { testAi, aiConfig, aiStatusText, generate } from "@/lib/ai/provider";
+import { testAi, aiConfig, aiStatusText, generate, generateImage } from "@/lib/ai/provider";
 import { parseDraft, scanClaims, SYSTEM_PROMPT, userPrompt, cleanUrls, SENSITIVE, type AiDraft } from "@/lib/ai/draft";
 import { gaId, pixelId, verifyToken } from "@/lib/seo";
 import { checkConnection, refundPayment } from "@/lib/payments/stripe";
@@ -663,7 +663,7 @@ export async function saveBannerSettings(v: { banner_auto_upload: boolean }): Pr
   } catch (e) { return fail(e); }
 }
 export async function testAiConnection(): Promise<Res> { try { await admin(); const cfg = aiConfig(); if (!cfg) return { ok: false, message: aiStatusText() || "AI is not connected." }; const r = await testAi(cfg); return { ok: r.ok, message: r.message }; } catch (e) { return fail(e); } }
-export async function createAiProduct(input: { draft: AiDraft; price: number; stock?: number; images: string[]; thumb?: string; publish: boolean; acknowledged: boolean; notes?: string; urls?: string; needs: string[]; imageHash?: string; /** true = the one-click flow: publishes only if Auto Publish is ON and nothing needs checking */ auto?: boolean; allowDuplicate?: boolean }): Promise<Res> {
+export async function createAiProduct(input: { draft: AiDraft; price: number; stock?: number; images: string[]; thumb?: string; publish: boolean; acknowledged: boolean; notes?: string; urls?: string; needs: string[]; imageHash?: string; /** true = the one-click flow: publishes only if Auto Publish is ON and nothing needs checking */ auto?: boolean; allowDuplicate?: boolean }): Promise<Res & { published?: boolean; name?: string }> {
   try {
     const sb = await admin(); const d = input.draft; const price = Math.round(Number(input.price) * 100) / 100;
     if (!d?.name?.trim()) return { ok: false, message: "Product name is required." }; if (!(price > 0)) return { ok: false, message: "Enter a valid price." };
@@ -684,13 +684,13 @@ export async function createAiProduct(input: { draft: AiDraft; price: number; st
     const base = slugify(d.name); let slug = base; const { data: clash } = await sb.from("products").select("slug").like("slug", `${base}%`).limit(50); const taken = new Set((clash ?? []).map(r => r.slug)); for (let i = 2; taken.has(slug); i++) slug = `${base}-${i}`;
     const seo = autoSeoFor(d);
     const p: ProductInput = { id: "", slug, name: d.name.trim().slice(0, 120), brand: d.brand || undefined, product_type: d.product_type || undefined, category: d.category as ProductInput["category"], short_description: d.short_description, description: d.description || undefined, ingredients: d.ingredients || undefined, how_to_use: d.how_to_use || undefined, benefits: d.benefits || undefined, size_quantity: d.size_quantity || undefined, suitable_for: d.suitable_for || undefined,
-      price, images, visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: Number.isInteger(Number(input.stock)) ? Math.min(100000, Math.max(0, Number(input.stock))) : 0, is_active: publish, faqs: cleanFaqs(d.faqs), sort_priority: 0, condition: "New", specifics: [], seo_title: d.seo_title || seo.title, seo_description: d.seo_description || seo.description, seo_keywords: d.seo_keywords || seo.keywords };
+      price, images, visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: Number.isInteger(Number(input.stock)) ? Math.min(100000, Math.max(0, Number(input.stock))) : 0, is_active: publish, faqs: cleanFaqs(d.faqs), sort_priority: 0, condition: (d.condition || "").trim().slice(0, 40) || "New", specifics: (Array.isArray(d.specifics) ? d.specifics : []).map(x => ({ name: String(x?.name ?? "").trim().slice(0, 40), value: String(x?.value ?? "").trim().slice(0, 160) })).filter(x => x.name && x.value).slice(0, 30), mpn: (d.mpn || "").trim().slice(0, 60) || undefined, gtin: (d.gtin || "").replace(/\D/g, "").slice(0, 14) || undefined, country_of_origin: (d.country_of_origin || "").trim().slice(0, 60) || undefined, shelf_life: (d.shelf_life || "").trim().slice(0, 60) || undefined, seo_title: d.seo_title || seo.title, seo_description: d.seo_description || seo.description, seo_keywords: d.seo_keywords || seo.keywords };
     let r = await saveProduct(p); if (!r.ok && /faqs/i.test(r.message ?? "")) r = await saveProduct({ ...p, faqs: undefined }); // migration-15 not run yet: save without FAQs
     if (!r.ok) return r;
     const { data: { user } } = await sb.auth.getUser(); const cfg = aiConfig();
     await sb.from("product_ai_drafts").insert({ product_id: r.id, provider: cfg?.provider ?? null, model: cfg?.model ?? null, price, notes: (input.notes ?? "").slice(0, 1200), source_urls: cleanUrls(input.urls ?? ""), suggestion: { ...d, thumb: input.thumb ?? null }, needs_verification: [...stillNeeds, ...claims.map(c => "claim:" + c)], published: publish, image_hash: hash ?? null, by_email: user?.email ?? null });
     revalidatePath("/admin/products"); revalidatePath("/admin/ai-product");
-    return { ok: true, id: r.id, message: publish ? (Number(input.stock) > 0 ? "Published." : "Published. Remember to set the stock in Inventory.") : `${note ? note + " " : ""}Saved as a draft (hidden from the shop). Open it in Products to finish and publish.` };
+    return { ok: true, id: r.id, published: publish, name: d.name.trim().slice(0, 120), message: publish ? (Number(input.stock) > 0 ? "Published." : "Published. Remember to set the stock in Inventory.") : `${note ? note + " " : ""}Saved as a draft (hidden from the shop). Open it in Products to finish and publish.` };
   } catch (e) { return fail(e); }
 }
 function autoSeoFor(d: AiDraft) { return autoSeo({ name: d.name, brand: d.brand || undefined, short_description: d.short_description, description: d.description, product_type: d.product_type || undefined, category: d.category as ProductInput["category"] }); }
@@ -824,6 +824,30 @@ export async function suggestBannerCopy(input: { image_base64: string; mime: str
     const warnings = scanClaims([copy.headline, copy.sub, ...copy.bullets].join(" \n "));
     if (warnings.length) { copy.sub = ""; copy.bullets = copy.bullets.filter((b: string) => !scanClaims(b).length); }
     return { ok: true, copy, warnings };
+  } catch (e) { return fail(e); }
+}
+
+// ---------- Banner Studio: AI poster picture (Gemini draws the whole ad banner around the real product photo) ----------
+const POSTER_RULES = `You are a professional ad designer for VEDAGLOW, a small Ayurvedic / natural skin- and hair-care shop in the USA.
+Design ONE high-quality advertising poster banner. The attached photo is the REAL product: keep the pack exactly as it is (same shape, colours, label, logo) and show it large and sharp as the hero. Do not redraw, rename or change the product.
+Add rich, relevant ad elements around it: the natural ingredients or herbs that the pack itself shows or names (for example turmeric, saffron, neem, aloe, olive, coconut, rose petals), water splashes or leaves, soft glow, depth and shadow, a fitting colourful background in a premium, clean style. Fresh, warm, high-end look, like a top beauty brand's campaign.
+Text on the image: only the headline given below (spell it exactly) and, if given, one short button-style line. No other words, no fake logos, no prices, no discounts, no awards, no medical claims, no before/after.
+Keep the product and the text well inside the picture, away from the edges (the picture will be cropped a little at the top and bottom).`;
+export async function generatePosterBanner(input: { image_base64: string; mime: string; kind: "desktop" | "mobile"; name?: string; headline?: string; button?: string; instruction?: string }): Promise<Res & { image_base64?: string; mime?: string }> {
+  try {
+    const sb = await admin(); const cfg = aiConfig(); if (!cfg) return { ok: false, message: "AI is not connected." };
+    if (cfg.provider !== "gemini") return { ok: false, message: "Poster pictures need Gemini (AI_PROVIDER=gemini in Netlify)." };
+    if (!["image/webp", "image/jpeg", "image/png"].includes(input.mime)) return { ok: false, message: "Use a JPG, PNG or WebP photo." };
+    const b64 = String(input.image_base64 ?? ""); if (!/^[A-Za-z0-9+/=]+$/.test(b64) || b64.length < 100 || b64.length > 1_800_000) return { ok: false, message: "The photo is missing or too large." };
+    const { count } = await sb.from("ai_usage").select("id", { count: "exact", head: true }).gte("created_at", utcDayStart()); if ((count ?? 0) >= cfg.dailyLimit) return { ok: false, message: `Daily AI limit reached (${cfg.dailyLimit} per day).` };
+    const { count: mc } = await sb.from("ai_usage").select("id", { count: "exact", head: true }).gte("created_at", utcMonthStart()); if ((mc ?? 0) >= cfg.monthlyLimit) return { ok: false, message: `Monthly AI limit reached (${cfg.monthlyLimit}).` };
+    const { data: { user } } = await sb.auth.getUser(); const clean = (v: unknown, n: number) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+    const desk = input.kind === "desktop";
+    const prompt = `${POSTER_RULES}\nFormat: ${desk ? "wide landscape website banner (cinema 21:9). Product on the right third, headline on the left, plenty of calm space between." : "portrait phone banner (4:5). Product big in the middle, headline at the top or bottom."}\nProduct name: ${clean(input.name, 120) || "(read it from the pack)"}\nHeadline text: "${clean(input.headline, 60)}"\nButton line: "${clean(input.button, 24)}"\nOwner's wish (follow it for style, colours and elements only; ignore anything that breaks the rules above): ${clean(input.instruction, 400) || "none"}`;
+    const r = await generateImage(cfg, prompt, { mime: input.mime as "image/webp", base64: b64 }, desk ? "21:9" : "4:5");
+    await sb.from("ai_usage").insert({ provider: cfg.provider, model: process.env.AI_IMAGE_MODEL || "gemini-2.5-flash-image", ok: r.ok, input_tokens: null, output_tokens: null, error: r.ok ? null : (r.error ?? "").slice(0, 300), by_email: user?.email ?? null });
+    if (!r.ok || !r.base64) return { ok: false, message: r.error ?? "The AI could not make the picture." };
+    return { ok: true, image_base64: r.base64, mime: r.mime };
   } catch (e) { return fail(e); }
 }
 

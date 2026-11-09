@@ -13,7 +13,7 @@ import { btn, btn2, btnDanger, card, inp, lbl } from "./ui";
 export const emptyProduct = (): ProductInput => ({ id: "", slug: "", name: "", short_description: "", category: "skin-care", price: 0, images: [], visual: { kind: "bottle", label: "", color: "#E9D2B4" }, tags: [], stock: 0, is_active: true, sort_priority: 0, condition: "New", specifics: [] });
 const TAGS: Product["tags"][number][] = ["new", "best-seller", "featured", "sale"];
 const KINDS = ["bottle", "jar", "tube", "dropper", "pump"] as const;
-const SPEC_IDEAS = ["Skin type", "Hair type", "Volume", "Formulation", "Key ingredient", "Scent", "Free from", "Certification", "Target age", "Package type"];
+const SPEC_IDEAS = ["Type", "Suitable For", "Department", "Color", "Hair Color Shade", "Product Line", "Formulation", "Features", "Active Ingredients", "Key Ingredients", "Hair Type", "Skin Type", "Scent", "Volume", "Unit Quantity", "Unit Type", "Body Area", "Package Type", "Period After Opening", "California Prop 65 Warning", "Free from", "Certification", "Target age"];
 const TEXTS: [keyof ProductInput, string][] = [["description", "Description"], ["benefits", "Benefits"], ["ingredients", "Ingredients"], ["how_to_use", "How to use"], ["size_quantity", "Size / quantity note"], ["shipping_info", "Shipping info"], ["return_info", "Return info"]];
 
 export default function ProductForm({ initial, isNew, defaultFlat = 5.99, categories }: { initial: ProductInput; isNew: boolean; defaultFlat?: number; categories: { slug: string; name: string }[] }) {

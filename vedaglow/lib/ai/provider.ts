@@ -24,7 +24,7 @@ export const aiStatusText = (env: Record<string, string | undefined> = process.e
 };
 
 async function post(url: string, headers: Record<string, string>, body: unknown): Promise<{ status: number; json: any }> {
-  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 45000);
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 55000);
   try { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body), signal: ctl.signal, cache: "no-store" }); let j: any = null; try { j = await r.json(); } catch { /* not json */ } return { status: r.status, json: j }; }
   finally { clearTimeout(t); }
 }
@@ -45,7 +45,7 @@ export async function generate(cfg: AiConfig, system: string, user: string, imag
       if (status !== 200) return { ok: false, error: errOf(status, json) };
       return { ok: true, text: json?.choices?.[0]?.message?.content ?? "", inputTokens: json?.usage?.prompt_tokens, outputTokens: json?.usage?.completion_tokens };
     }
-    const { status, json } = await post(`${cfg.base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, { "x-goog-api-key": cfg.key }, { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: user }, ...imgs.map(im => ({ inline_data: { mime_type: im.mime, data: im.base64 } }))] }], generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2000 } });
+    const { status, json } = await post(`${cfg.base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, { "x-goog-api-key": cfg.key }, { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: user }, ...imgs.map(im => ({ inline_data: { mime_type: im.mime, data: im.base64 } }))] }], generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 } });
     if (status !== 200) return { ok: false, error: errOf(status, json) };
     return { ok: true, text: (json?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? "").join(""), inputTokens: json?.usageMetadata?.promptTokenCount, outputTokens: json?.usageMetadata?.candidatesTokenCount };
   } catch (e) { return { ok: false, error: e instanceof Error && e.name === "AbortError" ? "The AI took too long. Please try again." : "Could not reach the AI provider." }; }
@@ -61,6 +61,7 @@ export async function testAi(cfg: AiConfig): Promise<{ ok: boolean; message: str
         if (r.status !== 200) return { ok: false, message: errOf(r.status, j) + " Check GEMINI_API_KEY." };
         const names: string[] = (j?.models ?? []).filter((m: any) => (m.supportedGenerationMethods ?? []).includes("generateContent")).map((m: any) => String(m.name).replace(/^models\//, ""));
         const has = names.includes(cfg.model);
+        if (has) { const pr = await post(`${cfg.base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, { "x-goog-api-key": cfg.key }, { contents: [{ role: "user", parts: [{ text: "Reply with the word OK." }] }], generationConfig: { maxOutputTokens: 64 } }); if (pr.status !== 200) { const recent = names.filter(n => /^gemini-3\.\d+-flash$/.test(n)).slice(-3).join(", "); return { ok: false, message: errOf(pr.status, pr.json) + ` Model "${cfg.model}" is listed but cannot be used. Set AI_MODEL to a newer one${recent ? ", for example: " + recent : " (for example gemini-3.8-flash)"}.` }; } }
         return { ok: has, message: has ? `Key works. Model "${cfg.model}" is available.` : `Key works, but model "${cfg.model}" is not available to it. Set AI_MODEL to one of: ${names.slice(0, 25).join(", ") || "(none listed)"}.` };
       }
       const url = cfg.provider === "anthropic" ? `${cfg.base}/v1/models` : `${cfg.base}/v1/models`; const headers: Record<string, string> = cfg.provider === "anthropic" ? { "x-api-key": cfg.key, "anthropic-version": "2023-06-01" } : { Authorization: `Bearer ${cfg.key}` };
@@ -69,4 +70,18 @@ export async function testAi(cfg: AiConfig): Promise<{ ok: boolean; message: str
       return { ok: true, message: `Key accepted by ${cfg.provider}. Model in use: ${cfg.model}.` };
     } finally { clearTimeout(t); }
   } catch { return { ok: false, message: "Could not reach the AI provider." }; }
+}
+
+/** Poster picture from Gemini (needs AI_PROVIDER=gemini). Sends the product photo(s) + instructions, returns one PNG/JPEG. Model name: AI_IMAGE_MODEL (default gemini-2.5-flash-image). */
+export async function generateImage(cfg: AiConfig, prompt: string, image: AiImage | AiImage[], aspect: string, env: Record<string, string | undefined> = process.env): Promise<{ ok: boolean; mime?: string; base64?: string; error?: string }> {
+  if (cfg.provider !== "gemini") return { ok: false, error: "Poster pictures need AI_PROVIDER=gemini in Netlify." };
+  const imgs = Array.isArray(image) ? image : [image]; const tryModels = [...new Set([(env.AI_IMAGE_MODEL || "").trim(), "gemini-3.1-flash-image", "gemini-nano-banana-2.1", "gemini-2.5-flash-image"].filter(Boolean))]; let model = tryModels[0];
+  try {
+    let status = 0; let json: any = null;
+    for (const m of tryModels) { model = m; ({ status, json } = await post(`${cfg.base}/v1beta/models/${encodeURIComponent(m)}:generateContent`, { "x-goog-api-key": cfg.key }, { contents: [{ role: "user", parts: [{ text: prompt }, ...imgs.map(im => ({ inline_data: { mime_type: im.mime, data: im.base64 } }))] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: aspect } } })); if (status !== 404) break; }
+    if (status !== 200) return { ok: false, error: errOf(status, json) + (status === 404 ? ` Model "${model}" not found: set AI_IMAGE_MODEL.` : status === 429 ? " Free limit reached for pictures. Try later or enable billing in Google AI Studio." : "") };
+    const parts: any[] = json?.candidates?.[0]?.content?.parts ?? []; const img = parts.map(x => x.inlineData ?? x.inline_data).find(x => x?.data);
+    if (!img) return { ok: false, error: "Gemini did not return a picture" + (parts.find(x => x.text)?.text ? ": " + String(parts.find(x => x.text).text).slice(0, 140) : ". Try again with a simpler note.") };
+    return { ok: true, mime: img.mimeType ?? img.mime_type ?? "image/png", base64: img.data };
+  } catch (e) { return { ok: false, error: e instanceof Error && e.name === "AbortError" ? "The AI took too long. Try again." : "Could not reach the AI provider." }; }
 }
