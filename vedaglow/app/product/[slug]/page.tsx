@@ -53,7 +53,7 @@ export default async function ProductPage(props: Props) {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, ...(cat ? [{ name: cat.name, path: `/category/${cat.slug}` }] : []), { name: product.name }])) }} />
       {product.faqs?.length ? <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: product.faqs.map(f => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) }) }} /> : null}
-      <div className="pb-24 md:pb-0">
+      <div className="bg-gradient-to-b from-cream via-white to-white pb-24 md:pb-0">
         <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6">
           <nav aria-label="Breadcrumb" className="mb-6 flex flex-wrap items-center gap-1 text-sm text-ink/60">
             <Link href="/" className="hover:text-forest">Home</Link>

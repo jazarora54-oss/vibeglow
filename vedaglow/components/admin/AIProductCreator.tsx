@@ -7,6 +7,7 @@ import { scanClaims, SENSITIVE } from "@/lib/ai/draft";
 import type { AiDraft } from "@/lib/ai/draft";
 import { btn, btn2, card, inp, lbl } from "./ui";
 import PriceCheck from "./PriceCheck";
+import { drawCreative, type Mood } from "@/lib/creative/render";
 const OK = ["image/jpeg", "image/png", "image/webp"];
 const LABEL: Record<string, string> = { ingredients: "Ingredients", how_to_use: "How to use", benefits: "Benefits", size_quantity: "Size / quantity", suitable_for: "Suitable for" };
 const empty = (cat: string): AiDraft => ({ name: "", brand: "", product_type: "", category: cat, short_description: "", description: "", ingredients: "", how_to_use: "", benefits: "", size_quantity: "", suitable_for: "", seo_title: "", seo_description: "", seo_keywords: "", faqs: [], image_alt: "" });
@@ -29,10 +30,21 @@ export default function AIProductCreator({ categories, aiReady, status, used, li
   const [auto, setAuto] = useState(autoPublish), [aiMsg, setAiMsg] = useState(""), [dups, setDups] = useState<DupHit[]>([]), [allowDup, setAllowDup] = useState(false); const hash = useRef("");
   const [file, setFile] = useState<File | null>(null), [price, setPrice] = useState(""), [notes, setNotes] = useState(""), [urls, setUrls] = useState(""), [busy, setBusy] = useState(""), [err, setErr] = useState(""), [done, setDone] = useState("");
   const [d, setD] = useState<AiDraft | null>(null), [needs, setNeeds] = useState<string[]>([]), [warn, setWarn] = useState<string[]>([]), [ack, setAck] = useState(false), [left, setLeft] = useState(Math.max(0, limit - used));
-  const [prev, setPrev] = useState(""); const full = useRef<Blob | null>(null), thumb = useRef<Blob | null>(null);
+  const [fileBack, setFileBack] = useState<File | null>(null), [fileIng, setFileIng] = useState<File | null>(null), [makeGfx, setMakeGfx] = useState(true); const [prev, setPrev] = useState(""); const full = useRef<Blob | null>(null), thumb = useRef<Blob | null>(null);
   useEffect(() => { if (!file) { setPrev(""); return; } const u = URL.createObjectURL(file); setPrev(u); return () => URL.revokeObjectURL(u); }, [file]);
   const cat0 = categories[0]?.slug ?? "skin-care";
   const pick = (f: File | null) => { setErr(""); setDone(""); setD(null); if (!f) { setFile(null); return; } if (!OK.includes(f.type)) { setErr("Only JPG, PNG or WebP photos are allowed."); return; } if (f.size > 10 * 1024 * 1024) { setErr("The photo is over 10 MB. Use a smaller one."); return; } setFile(f); dHash(f).then(h => { hash.current = h; }).catch(() => { hash.current = ""; }); };
+  const extraPhotos = async () => { const out: { kind: "back" | "ingredients"; image_base64: string }[] = []; for (const [k, f] of [["back", fileBack], ["ingredients", fileIng]] as const) if (f) out.push({ kind: k, image_base64: await b64(await toWebp(f, 1024, 0.8)) }); return out; };
+  /** Uploads the real photos (front, back, ingredients) and 2 designed extra pictures made free in the browser (not AI art). Returns the public URLs in gallery order. */
+  const uploadSet = async (draft: AiDraft, id: string) => {
+    const sb = browserClient(); const up = async (b: Blob, p: string) => { const { error } = await sb.storage.from("media").upload(p, b, { cacheControl: "31536000", upsert: false, contentType: "image/webp" }); if (error) throw new Error(`Upload failed: ${error.message}`); return sb.storage.from("media").getPublicUrl(p).data.publicUrl; };
+    const urls = [await up(full.current!, `${id}.webp`)]; const th = await up(thumb.current!, `${id}-thumb.webp`);
+    if (fileBack) urls.push(await up(await toWebp(fileBack, 1600, 0.85), `${id}-back.webp`)); if (fileIng) urls.push(await up(await toWebp(fileIng, 1600, 0.85), `${id}-ingredients.webp`));
+    if (makeGfx && file) { const bmp = await createImageBitmap(file); const bl = draft.benefits.split(/\n|;|,|•/).map(x => x.trim()).filter(x => x && x.length <= 24).slice(0, 3); const badge = /^[\w.]+\s?(g|ml|oz|fl oz|kg|l)$/i.test(draft.size_quantity.trim()) ? draft.size_quantity.trim().slice(0, 12) : "";
+      for (const [i, [w, h, mood]] of ([[1080, 1080, "auto"], [1080, 1350, "warm"]] as [number, number, Mood][]).entries()) { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; drawCreative(cv.getContext("2d")!, bmp, w, h, { template: "showcase", focusX: 0.5, focusY: 0.5, mood, copy: { headline: draft.name, sub: draft.short_description.slice(0, 80), cta: "", bullets: bl, badge } });
+        const blob: Blob = await new Promise((res, rej) => cv.toBlob(b => (b ? res(b) : rej(new Error("Could not make the extra picture."))), "image/webp", 0.85)); urls.push(await up(blob, `${id}-extra${i + 1}.webp`)); } bmp.close(); }
+    return { urls, th };
+  };
   const prepare = async () => { if (!file) throw new Error("Choose a photo first."); full.current = await toWebp(file, 1600, 0.85); thumb.current = await toWebp(file, 400, 0.8); return toWebp(file, 1024, 0.8); };
   const priceN = Number(price); const priceOk = priceN > 0 && priceN <= 100000;
   const run = async (manual: boolean) => {
@@ -41,7 +53,7 @@ export default function AIProductCreator({ categories, aiReady, status, used, li
       setBusy(manual ? "Preparing photo…" : "Preparing photo…"); const small = await prepare();
       if (manual) { setD(empty(cat0)); setNeeds([...SENSITIVE]); setWarn([]); setAck(false); setDups([]); setAllowDup(false); return; }
       setBusy("AI is reading the photo… (up to 30 seconds)");
-      const r = await generateProductDraft({ image_base64: await b64(small), mime: "image/webp", price: priceN, notes, urls, category_options: categories.map(c => c.slug) });
+      const r = await generateProductDraft({ image_base64: await b64(small), mime: "image/webp", extra_images: await extraPhotos(), price: priceN, notes, urls, category_options: categories.map(c => c.slug) });
       if (typeof r.left === "number") setLeft(r.left);
       if (!r.ok || !r.draft) { setErr(r.message ?? "The AI could not answer."); return; }
       setD(r.draft); setNeeds(r.needs ?? []); setWarn(r.warnings ?? []); setAck(false); setAllowDup(false); setDups((await checkDuplicates(r.draft.name, hash.current)).hits ?? []);
@@ -52,13 +64,11 @@ export default function AIProductCreator({ categories, aiReady, status, used, li
     setErr(""); setDone(""); if (!file) { setErr("Choose ONE product photo first."); return; } if (!priceOk) { setErr("Enter the selling price (USD)."); return; }
     try {
       setBusy("Preparing photo…"); const small = await prepare(); setBusy("AI is reading the photo… (up to 30 seconds)");
-      const r = await generateProductDraft({ image_base64: await b64(small), mime: "image/webp", price: priceN, notes, urls, category_options: categories.map(c => c.slug) });
+      const r = await generateProductDraft({ image_base64: await b64(small), mime: "image/webp", extra_images: await extraPhotos(), price: priceN, notes, urls, category_options: categories.map(c => c.slug) });
       if (typeof r.left === "number") setLeft(r.left); if (!r.ok || !r.draft) { setErr(r.message ?? "The AI could not answer."); return; }
-      setBusy("Saving…"); const sb = browserClient(); const id = `ai/${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const up = async (b: Blob, p: string) => { const { error } = await sb.storage.from("media").upload(p, b, { cacheControl: "31536000", upsert: false, contentType: "image/webp" }); if (error) throw new Error(`Upload failed: ${error.message}`); return sb.storage.from("media").getPublicUrl(p).data.publicUrl; };
-      const main = await up(full.current!, `${id}.webp`); const th = await up(thumb.current!, `${id}-thumb.webp`);
-      const res = await createAiProduct({ draft: r.draft, price: priceN, images: [main], thumb: th, publish: false, acknowledged: false, notes, urls, needs: r.needs ?? [], imageHash: hash.current, auto: true });
-      if (!res.ok) { setErr(res.message ?? "Could not save."); return; } setDone(res.message ?? "Saved."); setFile(null); setPrice(""); setNotes(""); setUrls("");
+      setBusy("Making pictures & saving…"); const id = `ai/${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; const set = await uploadSet(r.draft, id);
+      const res = await createAiProduct({ draft: r.draft, price: priceN, images: set.urls, thumb: set.th, publish: false, acknowledged: false, notes, urls, needs: r.needs ?? [], imageHash: hash.current, auto: true });
+      if (!res.ok) { setErr(res.message ?? "Could not save."); return; } setDone(res.message ?? "Saved."); setFile(null); setFileBack(null); setFileIng(null); setPrice(""); setNotes(""); setUrls("");
     } catch (e) { setErr(e instanceof Error ? e.message : "Something went wrong."); } finally { setBusy(""); }
   };
   const set = <K extends keyof AiDraft>(k: K, v: AiDraft[K]) => setD(x => (x ? { ...x, [k]: v } : x));
@@ -71,21 +81,22 @@ export default function AIProductCreator({ categories, aiReady, status, used, li
     if (dups.length && !allowDup) { setErr(`This looks like a duplicate of "${dups[0].name}" (${dups[0].why}). Tick "Save anyway" if it is really a new product.`); return; }
     if (publish && !confirm("Publish this product on the shop now? Customers will see it.")) return;
     try {
-      setBusy("Saving…"); const sb = browserClient(); const id = `ai/${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const up = async (b: Blob, p: string) => { const { error } = await sb.storage.from("media").upload(p, b, { cacheControl: "31536000", upsert: false, contentType: "image/webp" }); if (error) throw new Error(`Upload failed: ${error.message}`); return sb.storage.from("media").getPublicUrl(p).data.publicUrl; };
-      const main = await up(full.current, `${id}.webp`); const th = await up(thumb.current, `${id}-thumb.webp`);
-      const r = await createAiProduct({ draft: d, price: priceN, images: [main], thumb: th, publish, acknowledged: ack, notes, urls, needs, imageHash: hash.current, allowDuplicate: allowDup });
-      if (!r.ok) { setErr(r.message ?? "Could not save."); return; } setDone(r.message ?? "Saved."); setD(null); setFile(null); setPrice(""); setNotes(""); setUrls("");
+      setBusy("Making pictures & saving…"); const id = `ai/${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; const set = await uploadSet(d, id);
+      const r = await createAiProduct({ draft: d, price: priceN, images: set.urls, thumb: set.th, publish, acknowledged: ack, notes, urls, needs, imageHash: hash.current, allowDuplicate: allowDup });
+      if (!r.ok) { setErr(r.message ?? "Could not save."); return; } setDone(r.message ?? "Saved."); setD(null); setFile(null); setFileBack(null); setFileIng(null); setPrice(""); setNotes(""); setUrls("");
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not save."); } finally { setBusy(""); }
   };
   const T = (id: string, label: string, k: keyof AiDraft, o?: { rows?: number; max?: number }) => <div key={k}><label className={lbl} htmlFor={id}>{label}</label>{o?.rows ? <textarea id={id} rows={o.rows} maxLength={o.max} className={inp} value={String(d![k])} onChange={e => set(k, e.target.value as never)} /> : <input id={id} maxLength={o?.max} className={inp} value={String(d![k])} onChange={e => set(k, e.target.value as never)} />}</div>;
   return (<div className="space-y-5">
     <section className={card}><p className={`mb-3 rounded-lg p-3 text-sm ${aiReady ? "bg-green-50 text-green-900" : "bg-amber-50 text-amber-900"}`}>{aiReady ? `AI is connected. ${left} of ${limit} AI drafts left today.` : status} {!aiReady && "You can still use “Fill by hand”."}</p>
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-forest/15 bg-cream p-3 text-sm"><label className="flex items-center gap-2 font-semibold"><input type="checkbox" className="h-4 w-4 accent-forest" checked={auto} onChange={async e => { const v = e.target.checked; setAuto(v); const r = await saveAiSettings({ ai_auto_publish: v }); setAiMsg(r.message ?? ""); if (!r.ok) setAuto(!v); }} />Auto Publish</label><span className="text-ink/60">{auto ? "ON: the one-click button publishes by itself only if nothing needs verification and it is not a duplicate." : "OFF (recommended): everything is saved as a hidden draft for you to review."}</span><button type="button" className="ml-auto text-forest underline" onClick={async () => setAiMsg((await testAiConnection()).message ?? "")}>Test AI connection</button>{aiMsg && <p role="status" className="w-full text-ink/80">{aiMsg}</p>}<p className="w-full text-xs text-ink/55">This month: {monthUsed} of {monthLimit} AI drafts used (limit protects you from bills).</p></div>
-      <div className="grid gap-4 sm:grid-cols-2"><div><label className={lbl} htmlFor="ph">1. Product photo (one)</label><input id="ph" type="file" accept="image/jpeg,image/png,image/webp" onChange={e => pick(e.target.files?.[0] ?? null)} className="block w-full text-sm" />{prev && <img src={prev} alt="Selected product" className="mt-3 h-40 rounded-lg border border-forest/15 object-contain" />}</div>
+      <div className="grid gap-4 sm:grid-cols-2"><div><label className={lbl} htmlFor="ph">1. Front photo (required)</label><input id="ph" type="file" accept="image/jpeg,image/png,image/webp" onChange={e => pick(e.target.files?.[0] ?? null)} className="block w-full text-sm" />{prev && <img src={prev} alt="Selected product" className="mt-3 h-40 rounded-lg border border-forest/15 object-contain" />}</div>
+        <div className="grid gap-3"><div><label className={lbl} htmlFor="ph2">Back of the pack (optional)</label><input id="ph2" type="file" accept="image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={e => setFileBack(e.target.files?.[0] && OK.includes(e.target.files[0].type) && e.target.files[0].size <= 10485760 ? e.target.files[0] : null)} /></div>
+          <div><label className={lbl} htmlFor="ph3">Ingredients photo (optional)</label><input id="ph3" type="file" accept="image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={e => setFileIng(e.target.files?.[0] && OK.includes(e.target.files[0].type) && e.target.files[0].size <= 10485760 ? e.target.files[0] : null)} /></div>
+          <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-forest" checked={makeGfx} onChange={e => setMakeGfx(e.target.checked)} /><span>Also make 2 extra product pictures (designed graphics, free, made in your browser) and add them to the gallery</span></label></div>
         <div><label className={lbl} htmlFor="pr">2. Selling price (USD)</label><input id="pr" inputMode="decimal" className={inp} value={price} onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="24.99" /><p className="mt-1 text-xs text-ink/50">You set the price. The AI never does.</p></div>
-        <div className="sm:col-span-2"><label className={lbl} htmlFor="nt">Notes for the AI (optional but best): product name, size, ingredients exactly as printed, how to use</label><textarea id="nt" rows={3} maxLength={1200} className={inp} value={notes} onChange={e => setNotes(e.target.value)} /></div>
-        <div className="sm:col-span-2"><label className={lbl} htmlFor="ur">Reference links (optional, kept in your records; the AI cannot open them)</label><input id="ur" className={inp} value={urls} onChange={e => setUrls(e.target.value)} placeholder="https://supplier.example/product" /></div></div>
+        <div className="sm:col-span-2"><label className={lbl} htmlFor="nt">Tell the AI what to do (e.g. “list this product, write a good title and description, read the label”) and add facts: name, size, ingredients exactly as printed, how to use</label><textarea id="nt" rows={3} maxLength={1200} className={inp} value={notes} onChange={e => setNotes(e.target.value)} /></div>
+        <div className="sm:col-span-2"><label className={lbl} htmlFor="ur">Reference links (kept in your records only. The AI cannot open websites, so copy the important facts into the box above)</label><input id="ur" className={inp} value={urls} onChange={e => setUrls(e.target.value)} placeholder="https://supplier.example/product" /></div></div>
       <div className="mt-4 flex flex-wrap items-center gap-3"><button className={btn} disabled={!!busy || !aiReady || left <= 0} onClick={() => run(false)}>Create draft with AI (review first)</button><button className={btn2} disabled={!!busy || !aiReady || left <= 0} onClick={oneClick}>One click: create product</button><button className={btn2} disabled={!!busy} onClick={() => run(true)}>Fill by hand</button>{busy && <span role="status" className="text-sm text-ink/70">{busy}</span>}</div>
       {err && <p role="alert" className="mt-3 text-sm font-medium text-red-700">⚠ {err}</p>}{done && <p role="status" className="mt-3 text-sm font-medium text-green-800">✓ {done}</p>}</section>
     {d && <section className={card}><h2 className="mb-1 font-display text-2xl font-semibold text-forest">3. Preview &amp; check</h2><p className="mb-4 text-sm text-ink/60">Nothing is public yet. Edit anything, then save as a draft or publish.</p>

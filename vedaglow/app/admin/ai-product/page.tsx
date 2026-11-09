@@ -5,6 +5,7 @@ import { getSiteSettings } from "@/lib/data/site";
 import { fmtDateTime } from "@/lib/format";
 import { card } from "@/components/admin/ui";
 import AIProductCreator from "@/components/admin/AIProductCreator";
+import BulkAiCreator from "@/components/admin/BulkAiCreator";
 export const dynamic = "force-dynamic";
 export default async function Page() {
   const cfg = aiConfig(); const sb = serverClient(); const d = new Date(); d.setUTCHours(0, 0, 0, 0);
@@ -13,6 +14,7 @@ export default async function Page() {
   return (<div className="space-y-5"><h1 className="font-display text-4xl font-semibold text-forest">AI Product Creator</h1>
     <p className="text-sm text-ink/70">Upload one photo + the price. The AI suggests the text; <b>you</b> check it and press Save or Publish. It never publishes by itself and is told never to invent ingredients, sizes or health claims.</p>
     <AIProductCreator categories={cats} aiReady={Boolean(cfg)} status={aiStatusText()} used={today.count ?? 0} limit={cfg?.dailyLimit ?? 0} autoPublish={Boolean(st.ai_auto_publish)} monthUsed={month.count ?? 0} monthLimit={cfg?.monthlyLimit ?? 0} />
+    <BulkAiCreator categories={cats} aiReady={Boolean(cfg)} left={Math.max(0, (cfg?.dailyLimit ?? 0) - (today.count ?? 0))} autoPublish={Boolean(st.ai_auto_publish)} />
     <section className={card}><h2 className="mb-2 font-display text-2xl font-semibold text-forest">Settings (in Netlify, never in the browser)</h2>
       <p className="text-sm text-ink/70">Provider: <b>{cfg ? `${cfg.provider} · ${cfg.model}` : "not connected"}</b> · Daily limit: <b>{cfg?.dailyLimit ?? "—"}</b> · Used today: <b>{today.count ?? 0}</b></p>
       <p className="mt-2 text-xs text-ink/60">Variables: AI_PROVIDER (anthropic | openai | gemini), the matching key (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY), AI_MODEL (required for openai/gemini), AI_DAILY_LIMIT (default 20), AI_MONTHLY_LIMIT (default 300). For Gemini: create a key in Google AI Studio, set AI_PROVIDER=gemini + GEMINI_API_KEY, then press “Test AI connection” – it lists the model names your key can use for AI_MODEL. Switching provider = change AI_PROVIDER + key, no code change. Provider usage is billed by the provider to you; set a spending limit in their dashboard.</p></section>

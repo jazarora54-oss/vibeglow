@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ShopPage from "@/components/shop/ShopPage";
 import { getCategoryBySlug } from "@/lib/data/categories";
+import { getCategoryBanner } from "@/lib/data/categoryBanners";
+import CategoryHero from "@/components/shop/CategoryHero";
 import { siteUrl } from "@/lib/site";
 import { breadcrumbLd, ldJson } from "@/lib/seo";
 export const dynamic = "force-dynamic";
@@ -16,5 +18,6 @@ export default async function Page(props: Props) {
   const params = await props.params; const searchParams = await props.searchParams;
   const cat = await getCategoryBySlug(params.slug);
   if (!cat) notFound();
-  return <><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, { name: cat.name }])) }} /><ShopPage title={cat.name} subtitle={cat.blurb || `Explore our ${cat.name.toLowerCase()} products.`} path={`/category/${cat.slug}`} crumbs={[{ label: "Shop", href: "/shop" }, { label: cat.name }]} searchParams={searchParams} lock={{ category: cat.slug }} /></>;
+  const banner = await getCategoryBanner(cat.slug);
+  return <><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, { name: cat.name }])) }} />{banner && <CategoryHero b={banner} name={cat.name} />}<ShopPage title={cat.name} subtitle={cat.blurb || `Explore our ${cat.name.toLowerCase()} products.`} path={`/category/${cat.slug}`} crumbs={[{ label: "Shop", href: "/shop" }, { label: cat.name }]} searchParams={searchParams} lock={{ category: cat.slug }} /></>;
 }
