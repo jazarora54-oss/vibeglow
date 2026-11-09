@@ -28,7 +28,8 @@ async function post(url: string, headers: Record<string, string>, body: unknown)
   try { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body), signal: ctl.signal, cache: "no-store" }); let j: any = null; try { j = await r.json(); } catch { /* not json */ } return { status: r.status, json: j }; }
   finally { clearTimeout(t); }
 }
-const errOf = (status: number, j: any) => `AI provider error (${status})${j?.error?.message ? ": " + String(j.error.message).slice(0, 160) : j?.error ? ": " + String(typeof j.error === "string" ? j.error : j.error.type ?? "").slice(0, 80) : ""}`;
+const hintOf = (status: number) => (status === 401 || status === 403 ? " The key is wrong or belongs to a different provider. In Netlify check that AI_PROVIDER matches the key (gemini + GEMINI_API_KEY), and remove any old ANTHROPIC_API_KEY." : "");
+const errOf = (status: number, j: any) => hintOf(status) && `AI provider error (${status}).${hintOf(status)}` || `AI provider error (${status})${j?.error?.message ? ": " + String(j.error.message).slice(0, 160) : j?.error ? ": " + String(typeof j.error === "string" ? j.error : j.error.type ?? "").slice(0, 80) : ""}`;
 
 /** One call: a photo + instructions in, text out. The provider differences stay inside this function. */
 export async function generate(cfg: AiConfig, system: string, user: string, image: AiImage | AiImage[]): Promise<AiResult> {
