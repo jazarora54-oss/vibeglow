@@ -23,10 +23,16 @@ export const aiStatusText = (env: Record<string, string | undefined> = process.e
   return "";
 };
 
-async function post(url: string, headers: Record<string, string>, body: unknown): Promise<{ status: number; json: any }> {
+async function post1(url: string, headers: Record<string, string>, body: unknown): Promise<{ status: number; json: any }> {
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 55000);
   try { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body), signal: ctl.signal, cache: "no-store" }); let j: any = null; try { j = await r.json(); } catch { /* not json */ } return { status: r.status, json: j }; }
   finally { clearTimeout(t); }
+}
+/** "High demand" (503) and brief server errors usually pass in seconds, so try again up to 2 more times before giving up. */
+async function post(url: string, headers: Record<string, string>, body: unknown): Promise<{ status: number; json: any }> {
+  let r = await post1(url, headers, body);
+  for (const wait of [2500, 5000]) { if (![500, 502, 503, 504].includes(r.status)) break; await new Promise(res => setTimeout(res, wait)); r = await post1(url, headers, body); }
+  return r;
 }
 const hintOf = (status: number) => (status === 401 || status === 403 ? " The key is wrong or belongs to a different provider. In Netlify check that AI_PROVIDER matches the key (gemini + GEMINI_API_KEY), and remove any old ANTHROPIC_API_KEY." : "");
 const errOf = (status: number, j: any) => hintOf(status) && `AI provider error (${status}).${hintOf(status)}` || `AI provider error (${status})${j?.error?.message ? ": " + String(j.error.message).slice(0, 160) : j?.error ? ": " + String(typeof j.error === "string" ? j.error : j.error.type ?? "").slice(0, 80) : ""}`;

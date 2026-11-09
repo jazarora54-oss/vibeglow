@@ -4,6 +4,7 @@ import ShopPage from "@/components/shop/ShopPage";
 import { getCategoryBySlug } from "@/lib/data/categories";
 import { getCategoryBanner } from "@/lib/data/categoryBanners";
 import CategoryHero from "@/components/shop/CategoryHero";
+import DefaultCategoryHero from "@/components/shop/DefaultCategoryHero";
 import { siteUrl } from "@/lib/site";
 import { breadcrumbLd, ldJson } from "@/lib/seo";
 export const dynamic = "force-dynamic";
@@ -19,5 +20,5 @@ export default async function Page(props: Props) {
   const cat = await getCategoryBySlug(params.slug);
   if (!cat) notFound();
   const banner = await getCategoryBanner(cat.slug);
-  return <><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, { name: cat.name }])) }} />{banner && <CategoryHero b={banner} name={cat.name} />}<ShopPage title={cat.name} subtitle={cat.blurb || `Explore our ${cat.name.toLowerCase()} products.`} path={`/category/${cat.slug}`} crumbs={[{ label: "Shop", href: "/shop" }, { label: cat.name }]} searchParams={searchParams} lock={{ category: cat.slug }} /></>;
+  return <><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, { name: cat.name }])) }} />{banner?.desktop_image ? <CategoryHero b={banner} name={cat.name} /> : <DefaultCategoryHero cat={cat} />}<ShopPage title={cat.name} subtitle={cat.blurb || `Explore our ${cat.name.toLowerCase()} products.`} path={`/category/${cat.slug}`} crumbs={[{ label: "Shop", href: "/shop" }, { label: cat.name }]} searchParams={searchParams} lock={{ category: cat.slug }} /></>;
 }
