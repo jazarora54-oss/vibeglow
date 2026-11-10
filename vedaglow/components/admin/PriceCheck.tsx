@@ -9,7 +9,7 @@ export default function PriceCheck({ name, brand, size, price }: { name: string;
   const nums = vals.map(v => Number(v.replace(/[^0-9.]/g, ""))).filter(n => n > 0);
   const hint = useMemo(() => marketHint(Number(price), nums), [price, vals]); // eslint-disable-line react-hooks/exhaustive-deps
   const tips = titleTips(name, brand, size); const q = [brand, name].filter(Boolean).join(" ").trim();
-  return (<section className={card}><h2 className="mb-1 font-display text-2xl font-semibold text-forest">Online price &amp; title check</h2>
+  return (<section className={card}><h2 className="mb-1 font-display text-2xl font-semibold text-forest">5. Online price &amp; title check</h2>
     <p className="mb-3 text-sm text-ink/60">Optional helper. Search the same product online, type the prices you see, and get a hint. (The shop does not read other websites by itself.)</p>
     <div className="mb-4 flex flex-wrap gap-2">{q ? searchLinks(q).map(([l, u]) => <a key={l} href={u} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-forest/25 bg-white px-3 py-1.5 text-sm font-semibold text-forest hover:bg-forest-100">Search {l} ↗</a>) : <span className="text-sm text-ink/50">Type the product title first, then search links appear.</span>}</div>
     <div className="grid gap-3 sm:grid-cols-5">{vals.map((v, i) => <div key={i}><label className={lbl} htmlFor={`mp${i}`}>Online price {i + 1} ($)</label><input id={`mp${i}`} inputMode="decimal" className={inp} value={v} onChange={e => setVals(a => a.map((x, k) => (k === i ? e.target.value : x)))} placeholder="e.g. 19.99" /></div>)}
