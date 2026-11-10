@@ -6,6 +6,7 @@ import { deactivateCategoryBanner, publishCategoryBanner, restoreCategoryBanner,
 import { loadBitmap, type Mood, type Spec, type ElementKind } from "@/lib/creative/render";
 import type { CategoryBanner } from "@/lib/data/categoryBanners";
 import { toWebp } from "./aiClient";
+import { fitToBanner } from "@/lib/creative/fit";
 import { btn, btn2, card, inp, lbl } from "./ui";
 const CAT_D: Spec = { w: 1920, h: 600, label: "Category desktop 1920×600" }, CAT_M: Spec = { w: 1080, h: 1350, label: "Category mobile 1080×1350" };
 const OK = ["image/jpeg", "image/png", "image/webp"]; const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -24,7 +25,7 @@ export default function CategoryDesignManager({ cats, versions }: { cats: Cat[];
     setTimeout(() => document.getElementById("cd-editor")?.scrollIntoView({ behavior: "smooth" }), 50); };
   const pick = async (f: File | undefined, spec: Spec, set: (b: Blob) => void) => { // own banner: kept as it is (only converted to WebP), with a gentle size hint
     setErr(""); setWarn(""); if (!f) return; if (!OK.includes(f.type) || f.size > 12 * 1024 * 1024) { setErr("Use a JPG, PNG or WebP picture up to 12 MB."); return; }
-    try { const b = await loadBitmap(f); const ok = Math.abs(b.width / b.height - spec.w / spec.h) < 0.04; if (!ok) setWarn(`Your picture is ${b.width}×${b.height}. The best size is ${spec.w}×${spec.h}; other shapes may look cropped or leave gaps.`); b.close(); set(await toWebp(f, spec.w >= 1600 ? 2400 : 1600, 0.9)); setTpl("upload"); } catch (e) { setErr(e instanceof Error ? e.message : "Could not open that picture."); }
+    try { const b = await loadBitmap(f); const ok = Math.abs(b.width / b.height - spec.w / spec.h) < 0.04; const bw = b.width, bh = b.height; b.close(); if (ok) set(await toWebp(f, spec.w >= 1600 ? 2400 : 1600, 0.9)); else { const r = await fitToBanner(f, spec.w, spec.h, "auto", spec.w >= 1600 ? 500 : 600); set(r.blob); setWarn(`Your picture is ${bw}×${bh}. It was fitted to ${spec.w}×${spec.h} automatically: ${r.how}.`); } setTpl("upload"); } catch (e) { setErr(e instanceof Error ? e.message : "Could not open that picture."); }
   };
   const save = async (publish: boolean) => {
     setErr(""); setMsg(""); if (!dBlob && !dUrl) { setErr("Please add the desktop banner picture first."); return; }
