@@ -16,7 +16,8 @@ export default async function Home() {
     getProducts({ tag: "sale", limit: n("sale") }), getProducts({ tag: "featured", limit: n("featured") }), getProducts({ newest: true })]);
   // Category picture: the one set in admin -> Categories, otherwise the newest product photo of that category (Sale / New Arrivals use their own newest product).
   const pic = (slug: string) => (slug === "sale" ? all.find(p => p.tags.includes("sale") && p.images[0]) : slug === "new-arrivals" ? all.find(p => p.images[0]) : all.find(p => p.category === slug && p.images[0]))?.images[0];
-  const catsWithPics = cats.map(c => ({ ...c, image_url: c.image_url || pic(c.slug) }));
+  const buttons = ((st as unknown as { category_buttons?: Record<string, string> }).category_buttons) ?? {}; // pictures uploaded in Admin → Category Design → Category buttons
+  const catsWithPics = cats.map(c => ({ ...c, image_url: buttons[c.slug] || c.image_url || pic(c.slug) }));
   const any = best[0] ?? fresh[0] ?? sale[0] ?? featured[0];
   const related = any ? await getRelatedProducts(any, n("related")) : [];
   const heroProducts = [best[2], best[4], featured[1] ?? best[0], best[1]].filter((p): p is NonNullable<typeof p> => Boolean(p));
