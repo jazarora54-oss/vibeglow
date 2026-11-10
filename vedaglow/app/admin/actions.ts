@@ -837,6 +837,7 @@ Keep the product and the text well inside the picture, away from the edges (the 
 export async function generatePosterBanner(input: { image_base64: string; mime: string; kind: "desktop" | "mobile"; name?: string; headline?: string; button?: string; instruction?: string }): Promise<Res & { image_base64?: string; mime?: string }> {
   try {
     const sb = await admin(); const cfg = aiConfig(); if (!cfg) return { ok: false, message: "AI is not connected." };
+    if (process.env.AI_IMAGE_ENABLED !== "1") return { ok: false, message: "AI poster pictures are switched OFF (they can cost money)." };
     if (cfg.provider !== "gemini") return { ok: false, message: "Poster pictures need Gemini (AI_PROVIDER=gemini in Netlify)." };
     if (!["image/webp", "image/jpeg", "image/png"].includes(input.mime)) return { ok: false, message: "Use a JPG, PNG or WebP photo." };
     const b64 = String(input.image_base64 ?? ""); if (!/^[A-Za-z0-9+/=]+$/.test(b64) || b64.length < 100 || b64.length > 1_800_000) return { ok: false, message: "The photo is missing or too large." };
