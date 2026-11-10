@@ -8,7 +8,7 @@ export interface Msg { id: string; name: string; email: string; subject: string 
 export default function MessageRow({ m }: { m: Msg }) {
   const [pending, start] = useTransition(); const router = useRouter(); const [reply, setReply] = useState(""), [msg, setMsg] = useState("");
   return (<details className={`rounded-2xl border bg-white p-4 shadow-card ${m.is_read ? "border-forest/10" : "border-gold"}`} onToggle={e => { if ((e.target as HTMLDetailsElement).open && !m.is_read) start(async () => { await setMessageRead(m.id, true); router.refresh(); }); }}>
-    <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2"><span><b className="text-forest">{m.name}</b> <span className="text-sm text-ink/60">&lt;{m.email}&gt;</span>{!m.is_read && <span className="ml-2 rounded-full bg-gold px-2 py-0.5 text-xs font-semibold text-white">NEW</span>}<br /><span className="text-sm">{m.subject || "(no subject)"}</span></span>
+    <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2"><span><b className="text-forest">{m.name}</b> <span className="text-sm text-ink/60">&lt;{m.email}&gt;</span>{!m.is_read && <span className="ml-2 rounded-full bg-gold px-2 py-0.5 text-xs font-semibold text-ongold">NEW</span>}<br /><span className="text-sm">{m.subject || "(no subject)"}</span></span>
       <span className="text-xs text-ink/50">{fmtDateTime(m.created_at)}</span></summary>
     <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{m.message}</p>
     {m.replied_at && <p className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-900"><b>Replied {fmtDateTime(m.replied_at)}:</b> <span className="whitespace-pre-wrap">{m.reply_text}</span></p>}

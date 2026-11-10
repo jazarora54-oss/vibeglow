@@ -32,7 +32,7 @@ export default function ProductCard({ product, layout = "grid" }: { product: Pro
         {pct > 0 && <span className="text-xs text-ink/50 line-through">{money(product.compare_at_price!)}</span>}
       </div>
       <p className={`mt-1 text-xs ${ship.kind === "free" ? "font-semibold text-forest-500" : "text-ink/60"}`}>{ship.kind === "free" ? "🚚 " : ""}{ship.text}</p>
-      <button onClick={() => addToCart(product)} disabled={product.stock <= 0} className="mt-3 w-full disabled:cursor-not-allowed disabled:bg-ink/30 sm:disabled:hover:bg-ink/30 rounded-md bg-forest py-2.5 text-xs font-semibold tracking-wide text-white transition-colors hover:bg-forest-500">{product.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
+      <button onClick={() => addToCart(product)} disabled={product.stock <= 0} className="mt-3 w-full disabled:cursor-not-allowed disabled:bg-ink/30 sm:disabled:hover:bg-ink/30 rounded-md bg-forest py-2.5 text-xs font-semibold tracking-wide text-onforest transition-colors hover:bg-forest-500">{product.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
       </div>
     </article>
   );

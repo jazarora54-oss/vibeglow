@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, Jost } from "next/font/google";
 import "./globals.css";
 import { siteUrl } from "@/lib/site";
+import { fontClasses } from "@/lib/fonts";
 import { CartProvider } from "@/components/CartProvider";
 import AnnouncementBar from "@/components/layout/AnnouncementBar";
 import Header from "@/components/layout/Header";
@@ -19,8 +19,6 @@ import DealNudge from "@/components/cart/DealNudge";
 import { themeCss } from "@/lib/theme";
 import Tracking from "@/components/Tracking";
 import { gaId, pixelId, ldJson, organizationLd, verifyToken, websiteLd } from "@/lib/seo";
-const display = Cormorant_Garamond({ subsets: ["latin"], weight: ["500", "600", "700"], style: ["normal", "italic"], variable: "--font-display" });
-const sans = Jost({ subsets: ["latin"], variable: "--font-sans" });
 export async function generateMetadata(): Promise<Metadata> {
   const v = verifyToken((await getSiteSettings()).google_verify);
   return { ...metadata, ...(v ? { verification: { google: v } } : {}) };
@@ -28,7 +26,7 @@ export async function generateMetadata(): Promise<Metadata> {
 const metadata: Metadata = { metadataBase: new URL(siteUrl()), openGraph: { siteName: "VEDAGLOW", type: "website" }, title: "VEDAGLOW – Ancient Wisdom. Modern Glow.", description: "Pure, natural & effective beauty and wellness products for your daily care." };
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const [settings, deals, cats] = await Promise.all([getSiteSettings(), getActiveDeals(), getStoreCategories()]); const shipCfg = shipConfigOf(settings);
-  return (<html lang="en" className={`${display.variable} ${sans.variable}`}><body>
+  return (<html lang="en" className={fontClasses} data-3d={settings.style_3d ? "on" : undefined}><body>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson([organizationLd(settings, siteUrl()), websiteLd(settings, siteUrl())]) }} />
     <Tracking ga={gaId(settings.ga_id)} pixel={pixelId(settings.meta_pixel_id)} />
     {themeCss(settings) && <style dangerouslySetInnerHTML={{ __html: themeCss(settings) }} />}

@@ -30,8 +30,8 @@ export default function CategoryButtonManager({ items }: { items: ButtonItem[] }
     {(msg || err) && <p role="status" className={`mb-3 rounded-lg px-3 py-2 text-sm font-medium ${err ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>{err || msg}</p>}
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{items.map(it => (
       <article key={it.slug} className="flex items-center gap-4 rounded-xl border border-forest/15 p-3">
-        <span className="relative grid h-24 w-24 shrink-0 place-items-center rounded-full p-[3px] shadow-[0_10px_20px_-6px_rgba(15,61,38,0.45)] ring-1 ring-gold/40" style={{ background: "linear-gradient(145deg,#fff,#e9efe6)" }}>
-          <span className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-white text-xl font-semibold text-forest shadow-[inset_0_-6px_10px_rgba(15,61,38,0.18)]">{it.image ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={it.image} alt="" className="h-full w-full object-cover" /> : it.name[0]}</span>
+        <span className="relative grid h-24 w-24 shrink-0 place-items-center rounded-full p-[3px] shadow-[0_10px_20px_-6px_rgb(var(--forest)/0.45)] ring-1 ring-gold/40" style={{ background: "linear-gradient(145deg,#fff,#e9efe6)" }}>
+          <span className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-white text-xl font-semibold text-forest shadow-[inset_0_-6px_10px_rgb(var(--forest)/0.18)]">{it.image ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={it.image} alt="" className="h-full w-full object-cover" /> : it.name[0]}</span>
           <span aria-hidden="true" className="pointer-events-none absolute left-2 top-1.5 h-5 w-8 rotate-[-30deg] rounded-full bg-white/50 blur-[2px]" />
         </span>
         <div className="min-w-0 flex-1"><p className="font-semibold text-forest">{it.name}</p><p className="mb-2 text-xs text-ink/60">{it.custom ? "Your picture" : it.image ? "Automatic (product photo)" : "No picture yet"}</p>

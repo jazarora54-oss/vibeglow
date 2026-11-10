@@ -11,6 +11,6 @@ export default async function AnnouncementBar() {
   const lines = topbarLines(s.topbar_text); const ship = freeOver > 0 && (!lines.length || s.topbar_show_shipping);
   if (!ship && !lines.length) return null;
   const bg = isHex(s.topbar_bg) ? s.topbar_bg : ""; const fg = bg ? textOn(bg) : "";
-  return <div className={`px-4 py-2 text-center text-xs sm:text-sm ${bg ? "" : "bg-forest text-white"}`} style={bg ? { background: bg, color: fg } : undefined}>
-    <TopBarText lines={lines} ship={ship ? `FREE SHIPPING on orders over ${money(freeOver)}` : ""} link={safeLink(s.topbar_link)} accent={bg ? "" : "text-gold-light"} /></div>;
+  return <div className={`px-4 py-2 text-center text-xs sm:text-sm ${bg ? "" : "bg-forest text-onforest"}`} style={bg ? { background: bg, color: fg } : undefined}>
+    <TopBarText lines={lines} ship={ship ? `FREE SHIPPING on orders over ${money(freeOver)}` : ""} link={safeLink(s.topbar_link)} accent={bg ? "" : "text-goldonforest"} /></div>;
 }

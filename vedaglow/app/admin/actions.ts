@@ -22,7 +22,7 @@ import { offerEmail, statusUpdate, refundEmail, refundNoticeAdmin, testEmail, br
 import { siteUrl } from "@/lib/site";
 import { audit } from "@/lib/audit";
 import { adjustStock } from "@/lib/orderStock";
-import { colorIssues, contrast, isHex } from "@/lib/theme";
+import { colorIssues, contrast, FONT_PAIRS, isHex, themeById } from "@/lib/theme";
 import { safeLink, topbarLines } from "@/lib/topbar";
 import { testAi, aiConfig, aiStatusText, generate, generateImage } from "@/lib/ai/provider";
 import { parseDraft, scanClaims, SYSTEM_PROMPT, userPrompt, cleanUrls, SENSITIVE, type AiDraft } from "@/lib/ai/draft";
@@ -513,20 +513,21 @@ export async function deleteReview(id: string): Promise<Res> {
 
 
 // ---------- Brand & Logo ----------
-export interface BrandInput { logo_url: string; logo_alt: string; logo_size: "s" | "m" | "l"; color_primary: string; color_accent: string; color_bg: string }
+export interface BrandInput { logo_url: string; logo_alt: string; logo_size: "s" | "m" | "l"; color_primary: string; color_accent: string; color_bg: string; color_text: string; theme_id: string; font_id: string; style_3d: boolean; text_size: "s" | "m" | "l" }
 export async function saveBrand(v: BrandInput): Promise<Res> {
   try {
     const sb = await admin(); const t = (x: unknown, n: number) => String(x ?? "").trim().slice(0, n);
     const logo = t(v.logo_url, 600); if (logo && !/^https:\/\//i.test(logo)) return { ok: false, message: "The logo must be an uploaded picture (or an https:// address)." };
-    const cols = [t(v.color_primary, 7), t(v.color_accent, 7), t(v.color_bg, 7)];
+    const cols = [t(v.color_primary, 7), t(v.color_accent, 7), t(v.color_bg, 7), t(v.color_text, 7)];
     for (const c of cols) if (c && !isHex(c)) return { ok: false, message: "Colours must look like #0F3D26." };
-    const bad = colorIssues(cols[0], cols[1], cols[2]).find(i => i.level === "block"); if (bad) return { ok: false, message: bad.text };
+    const bad = colorIssues(cols[0], cols[1], cols[2], cols[3]).find(i => i.level === "block"); if (bad) return { ok: false, message: bad.text };
+    const themeId = themeById(v.theme_id) ? v.theme_id : "", fontId = FONT_PAIRS.some(f => f.id === v.font_id) ? v.font_id : "", textSize = v.text_size === "s" || v.text_size === "l" ? v.text_size : "m";
     const size = v.logo_size === "s" || v.logo_size === "l" ? v.logo_size : "m";
     const prev = await getSiteSettings();
-    const data: SiteSettings = { ...prev, logo_url: logo, logo_alt: t(v.logo_alt, 120), logo_size: size, color_primary: cols[0], color_accent: cols[1], color_bg: cols[2] };
+    const data: SiteSettings = { ...prev, logo_url: logo, logo_alt: t(v.logo_alt, 120), logo_size: size, color_primary: cols[0], color_accent: cols[1], color_bg: cols[2], color_text: cols[3], theme_id: themeId, font_id: fontId, style_3d: v.style_3d === true, text_size: textSize };
     const { error } = await sb.from("site_settings").upsert({ id: 1, data }, { onConflict: "id" });
     if (error) return { ok: false, message: error.message };
-    await audit(sb, "brand.update", `Brand saved (${logo ? "custom logo" : "original logo"}, ${cols.some(Boolean) ? "custom colours" : "original colours"})`); refresh(); revalidatePath("/admin/brand"); return { ok: true };
+    await audit(sb, "brand.update", `Brand saved (${logo ? "custom logo" : "original logo"}, ${cols.some(Boolean) ? "custom colours" : "original colours"}, theme ${themeId || "none"}, font ${fontId || "original"}, 3D ${v.style_3d === true ? "on" : "off"})`); refresh(); revalidatePath("/admin/brand"); return { ok: true };
   } catch (e) { return fail(e); }
 }
 

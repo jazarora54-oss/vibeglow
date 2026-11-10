@@ -102,7 +102,7 @@ export default function CheckoutView({ payOnline = false }: { payOnline?: boolea
         <div className="space-y-4 min-w-0"><CheckoutSummary items={items} summary={summary} method={method} />
           <div className="rounded-2xl border border-forest/10 bg-white p-5 shadow-card"><CouponBox idPrefix="co" /></div>
           {(formMsg || issues.length > 0) && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">⚠ {formMsg || issues[0].message}</p>}
-          <button type="submit" disabled={issues.length > 0 || !chosen} className="w-full rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-white hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">{payOnline ? "CONTINUE TO SECURE PAYMENT" : "PLACE ORDER"}</button>
+          <button type="submit" disabled={issues.length > 0 || !chosen} className="w-full rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-onforest hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">{payOnline ? "CONTINUE TO SECURE PAYMENT" : "PLACE ORDER"}</button>
           <p className="text-center text-xs text-ink/50">{payOnline ? "You will pay on Stripe's secure page. Nothing is charged until you confirm there." : "Demo order: no payment is taken in this step."}</p>
           <Link href="/cart" className="block text-center text-sm font-semibold text-forest underline-offset-4 hover:underline">← Back to cart</Link></div>
       </form>

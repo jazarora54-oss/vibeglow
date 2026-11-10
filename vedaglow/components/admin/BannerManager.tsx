@@ -3,9 +3,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { bannerLive, type Banner } from "@/lib/data/banners";
 import { deleteBanner, saveBanner, type BannerInput } from "@/app/admin/actions";
-import BannerImageUploader from "./BannerImageUploader";
+import ImageUploader from "./ImageUploader";
 import { btn, btn2, btnDanger, card, inp, lbl } from "./ui";
-const blank = (n: number): BannerInput => ({ title: "", subtitle: "", button_text: "SHOP NOW", button_link: "/shop", image_url: "", sort_order: n, is_active: true, starts_at: null, ends_at: null, mobile_image_url: null, image_alt: "" });
+const blank = (n: number): BannerInput => ({ title: "", subtitle: "", button_text: "", button_link: "/shop", image_url: "", sort_order: n, is_active: true, starts_at: null, ends_at: null, mobile_image_url: null, image_alt: "" });
 /** Dates are saved as 00:00 / 23:59 Pacific time, so show them back the same way. */
 const day = (iso?: string | null) => iso ? new Date(Date.parse(iso) - 8 * 3600e3).toISOString().slice(0, 10) : "";
 export default function BannerManager({ banners }: { banners: Banner[] }) {
@@ -18,12 +18,12 @@ export default function BannerManager({ banners }: { banners: Banner[] }) {
     <p className="text-sm text-ink/60">Banners that are on (and inside their dates, if you set any) replace the default hero on the homepage and slide automatically. Best sizes: computer 1920 × 650 px, phone 750 × 950 px. Category pages have their own banners in <a href="/admin/category-design" className="underline">Category Design</a>. You can upload a normal image, an animated <b>GIF</b>, or a short <b>MP4/WebM video</b> (up to 25 MB; it plays silently on a loop). With no active banners, the original hero is shown.</p>
     {edit && <section className={card}><h2 className="mb-4 font-display text-2xl font-semibold text-forest">{edit.id ? "Edit banner" : "New banner"}</h2>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="sm:col-span-2"><span className={lbl}>Banner image, GIF or video *</span><BannerImageUploader kind="desktop" allowVideo value={edit.image_url} onChange={v => set("image_url", v)} /></div>
+        <div className="sm:col-span-2"><span className={lbl}>Banner image, GIF or video *</span><ImageUploader multiple={false} allowVideo fit={{ w: 1920, h: 650 }} folder="banners" value={edit.image_url ? [edit.image_url] : []} onChange={v => set("image_url", v[0] ?? "")} /></div>
         <div><label className={lbl}>Headline (optional)</label><input className={inp} value={edit.title} onChange={e => set("title", e.target.value)} /></div>
         <div><label className={lbl}>Sub-text (optional)</label><input className={inp} value={edit.subtitle} onChange={e => set("subtitle", e.target.value)} /></div>
-        <div><label className={lbl}>Button text (leave EMPTY if your picture already has its own words/button: then the whole banner is the link and nothing covers your picture)</label><input className={inp} value={edit.button_text} onChange={e => set("button_text", e.target.value)} /></div>
+        <div><label className={lbl}>Button text (leave EMPTY if your picture already has a button; then the whole banner is the link)</label><input className={inp} value={edit.button_text} onChange={e => set("button_text", e.target.value)} /></div>
         <div><label className={lbl}>Link (e.g. /shop or /sale)</label><input className={inp} value={edit.button_link} onChange={e => set("button_link", e.target.value)} /></div>
-        <div className="sm:col-span-2"><span className={lbl}>Picture for phones (optional)</span><p className="mb-1.5 text-xs text-ink/55">A tall version (750 × 950 px) looks best on small screens. Phones use this picture; computers use the wide one above. Empty = the wide picture is used everywhere.</p><BannerImageUploader kind="mobile" value={edit.mobile_image_url ?? ""} onChange={v => set("mobile_image_url", v || null)} /></div>
+        <div className="sm:col-span-2"><span className={lbl}>Picture for phones (optional)</span><p className="mb-1.5 text-xs text-ink/55">A tall version looks better on small screens (it is fitted to 750 × 950 px automatically). Phones use this picture; computers use the wide one above. Empty = the wide picture is used everywhere.</p><ImageUploader multiple={false} fit={{ w: 750, h: 950 }} folder="banners" value={edit.mobile_image_url ? [edit.mobile_image_url] : []} onChange={v => set("mobile_image_url", v[0] ?? null)} /></div>
         <div className="sm:col-span-2"><label className={lbl}>Picture description (for blind visitors and Google)</label><input className={inp} maxLength={160} value={edit.image_alt ?? ""} onChange={e => set("image_alt", e.target.value)} placeholder="e.g. Aloe vera face wash with fresh green leaves" /></div>
         <div><label className={lbl}>Show from (optional)</label><input type="date" className={inp} value={day(edit.starts_at)} onChange={e => set("starts_at", e.target.value || null)} /></div>
         <div><label className={lbl}>Show until (optional, this day included)</label><input type="date" className={inp} value={day(edit.ends_at)} onChange={e => set("ends_at", e.target.value || null)} /></div>

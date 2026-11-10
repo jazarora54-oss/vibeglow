@@ -3,10 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@/lib/supabase/browser";
 import { deactivateCategoryBanner, publishCategoryBanner, restoreCategoryBanner, saveCategoryBanner } from "@/app/admin/actions";
-import { loadBitmap, type Mood, type Spec, type ElementKind } from "@/lib/creative/render";
+import { type Mood, type Spec, type ElementKind } from "@/lib/creative/render";
 import type { CategoryBanner } from "@/lib/data/categoryBanners";
-import { toWebp } from "./aiClient";
-import { fitToBanner } from "@/lib/creative/fit";
+import { fitImage, type FitMode } from "@/lib/imageFit";
 import { btn, btn2, card, inp, lbl } from "./ui";
 const CAT_D: Spec = { w: 1920, h: 600, label: "Category desktop 1920×600" }, CAT_M: Spec = { w: 1080, h: 1350, label: "Category mobile 1080×1350" };
 const OK = ["image/jpeg", "image/png", "image/webp"]; const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -15,7 +14,7 @@ export default function CategoryDesignManager({ cats, versions }: { cats: Cat[];
   const router = useRouter(); const [slug, setSlug] = useState(""); const [msg, setMsg] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState("");
   const [head, setHead] = useState(""), [sub, setSub] = useState(""), [cta, setCta] = useState(""), [link, setLink] = useState(""), [alt, setAlt] = useState(""), [mood, setMood] = useState<Mood>("auto"), [prompt, setPrompt] = useState(""), [from, setFrom] = useState(""), [until, setUntil] = useState("");
   const [bul, setBul] = useState(""), [badge, setBadge] = useState(""), [elems, setElems] = useState<ElementKind[]>([]), [tag, setTag] = useState(""), [tpl, setTpl] = useState<"upload" | "auto">("upload");
-  const [dBlob, setDBlob] = useState<Blob | null>(null), [mBlob, setMBlob] = useState<Blob | null>(null), [dUrl, setDUrl] = useState(""), [mUrl, setMUrl] = useState(""), [photo, setPhoto] = useState<ImageBitmap | null>(null), [warn, setWarn] = useState("");
+  const [fitMode, setFitMode] = useState<FitMode>("auto"); const [dBlob, setDBlob] = useState<Blob | null>(null), [mBlob, setMBlob] = useState<Blob | null>(null), [dUrl, setDUrl] = useState(""), [mUrl, setMUrl] = useState(""), [photo, setPhoto] = useState<ImageBitmap | null>(null), [warn, setWarn] = useState("");
   const dPrev = useMemo(() => (dBlob ? URL.createObjectURL(dBlob) : dUrl), [dBlob, dUrl]); const mPrev = useMemo(() => (mBlob ? URL.createObjectURL(mBlob) : mUrl), [mBlob, mUrl]);
   useEffect(() => () => { if (dBlob) URL.revokeObjectURL(dPrev); }, [dBlob, dPrev]); useEffect(() => () => { if (mBlob) URL.revokeObjectURL(mPrev); }, [mBlob, mPrev]);
   const by = useMemo(() => { const m = new Map<string, CategoryBanner[]>(); for (const v of versions) m.set(v.category_slug, [...(m.get(v.category_slug) ?? []), v]); return m; }, [versions]);
@@ -23,14 +22,14 @@ export default function CategoryDesignManager({ cats, versions }: { cats: Cat[];
   const open = (s: string) => { const list = by.get(s) ?? []; const base = list.find(v => v.status === "published") ?? list[0]; setSlug(s); setMsg(""); setErr(""); setWarn(""); setPhoto(null); setDBlob(null); setMBlob(null);
     setDUrl(base?.desktop_image ?? ""); setMUrl(base?.mobile_image ?? ""); setHead(base?.heading ?? ""); setSub(base?.subtitle ?? ""); setCta(base?.button_text ?? "Shop now"); setLink(base?.button_link || `/category/${s}`); setAlt(base?.image_alt ?? ""); setMood((base?.mood as Mood) ?? "auto"); setPrompt(base?.ai_prompt ?? ""); setTpl(base?.template ?? "upload"); setBul(""); setBadge(""); setElems([]); setTag(""); setFrom(base?.starts_at?.slice(0, 10) ?? ""); setUntil(base?.ends_at?.slice(0, 10) ?? "");
     setTimeout(() => document.getElementById("cd-editor")?.scrollIntoView({ behavior: "smooth" }), 50); };
-  const pick = async (f: File | undefined, spec: Spec, set: (b: Blob) => void) => { // own banner: kept as it is (only converted to WebP), with a gentle size hint
+  const pick = async (f: File | undefined, spec: Spec, set: (b: Blob) => void) => { // own banner: resized to the exact banner size (see lib/imageFit.ts)
     setErr(""); setWarn(""); if (!f) return; if (!OK.includes(f.type) || f.size > 12 * 1024 * 1024) { setErr("Use a JPG, PNG or WebP picture up to 12 MB."); return; }
-    try { const b = await loadBitmap(f); const ok = Math.abs(b.width / b.height - spec.w / spec.h) < 0.04; const bw = b.width, bh = b.height; b.close(); if (ok) set(await toWebp(f, spec.w >= 1600 ? 2400 : 1600, 0.9)); else { const r = await fitToBanner(f, spec.w, spec.h, "auto", spec.w >= 1600 ? 500 : 600); set(r.blob); setWarn(`Your picture is ${bw}×${bh}. It was fitted to ${spec.w}×${spec.h} automatically: ${r.how}.`); } setTpl("upload"); } catch (e) { setErr(e instanceof Error ? e.message : "Could not open that picture."); }
+    try { const r = await fitImage(f, spec.w, spec.h, fitMode, "image/webp"); setWarn(r.note); set(r.blob); setTpl("upload"); } catch (e) { setErr(e instanceof Error ? e.message : "Could not open that picture."); }
   };
   const save = async (publish: boolean) => {
     setErr(""); setMsg(""); if (!dBlob && !dUrl) { setErr("Please add the desktop banner picture first."); return; }
     try { setBusy("Uploading…"); const sb = browserClient(); const id = `category-banners/${slug}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const up = async (b: Blob, p: string) => { const { error } = await sb.storage.from("media").upload(p, b, { cacheControl: "31536000", upsert: false, contentType: "image/webp" }); if (error) throw new Error(`Upload failed: ${error.message}`); return sb.storage.from("media").getPublicUrl(p).data.publicUrl; };
+      const up = async (b: Blob, p: string) => { const { error } = await sb.storage.from("media").upload(p, b, { cacheControl: "31536000", upsert: false, contentType: b.type || "image/webp" }); if (error) throw new Error(`Upload failed: ${error.message}`); return sb.storage.from("media").getPublicUrl(p).data.publicUrl; };
       const d = dBlob ? await up(dBlob, `${id}-desktop.webp`) : dUrl; const m = mBlob ? await up(mBlob, `${id}-mobile.webp`) : mUrl; setBusy("Saving…");
       const r = await saveCategoryBanner({ slug, desktop_image: d, mobile_image: m, heading: head, subtitle: sub, button_text: cta, button_link: link, image_alt: alt || head, template: tpl, mood, ai_prompt: prompt, starts_at: from || null, ends_at: until || null, publish });
       if (r.ok) { setMsg(r.message ?? "Saved."); router.refresh(); } else setErr(r.message ?? "Could not save.");
@@ -52,6 +51,7 @@ export default function CategoryDesignManager({ cats, versions }: { cats: Cat[];
     {slug && <section id="cd-editor" className={card}><div className="mb-3 flex items-center justify-between"><h2 className="font-display text-2xl font-semibold text-forest">Editing: {cname}</h2><button className="text-sm underline" onClick={() => setSlug("")}>Close</button></div>
       <div className="grid gap-4 lg:grid-cols-2"><div className="space-y-4">
         <div className="rounded-lg border border-forest/15 bg-cream p-3"><p className="mb-2 text-sm font-semibold">Upload your own banner pictures (made in Canva, ChatGPT, Gemini…)</p>
+          <label className={lbl} htmlFor="cdf">How to fit your picture</label><select id="cdf" className={`${inp} mb-3 max-w-sm`} value={fitMode} onChange={e => setFitMode(e.target.value as FitMode)}><option value="auto">Automatic (recommended)</option><option value="fill">Fill the banner (edges may be trimmed)</option><option value="whole">Show the whole picture (blurred sides)</option></select><p className="mb-3 text-xs text-ink/60">Any size works: your picture is resized to the exact banner size automatically. Choose the picture AFTER choosing the fit.</p>
           <label className={lbl} htmlFor="cdd">Computer picture, 1920 × 600</label><input id="cdd" type="file" accept="image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={e => pick(e.target.files?.[0], CAT_D, setDBlob)} />
           <label className={`${lbl} mt-3`} htmlFor="cdm">Phone picture, 1080 × 1350</label><input id="cdm" type="file" accept="image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={e => pick(e.target.files?.[0], CAT_M, setMBlob)} /></div>
         {warn && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{warn}</p>}

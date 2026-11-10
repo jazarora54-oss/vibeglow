@@ -8,10 +8,12 @@ const config: Config = {
       forest: { DEFAULT: c("forest"), 700: c("forest-700"), 500: c("forest-500"), 100: c("forest-100") },
       gold: { DEFAULT: c("gold"), light: c("gold-light"), dark: c("gold-dark") },
       cream: { DEFAULT: c("cream"), dark: c("cream-dark") },
-      ink: "#1F2A22",
+      ink: c("ink"),
+      // readable text colours for the coloured surfaces (set by lib/theme.ts so text never matches its background)
+      onforest: c("on-forest"), ongold: c("on-gold"), goldonforest: c("gold-on-forest"),
     },
-    fontFamily: { display: ["var(--font-display)", "Georgia", "serif"], sans: ["var(--font-sans)", "system-ui", "sans-serif"] },
-    boxShadow: { card: "0 2px 14px rgba(15,61,38,.07)", lift: "0 10px 30px rgba(15,61,38,.14)" },
+    fontFamily: { display: ["var(--fd)", "Georgia", "serif"], sans: ["var(--fs)", "system-ui", "sans-serif"] },
+    boxShadow: { card: "0 2px 14px rgb(var(--forest) / .07)", lift: "0 10px 30px rgb(var(--forest) / .14)" },
   } },
   plugins: [],
 };

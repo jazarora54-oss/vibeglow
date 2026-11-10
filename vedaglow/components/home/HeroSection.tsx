@@ -11,7 +11,7 @@ export default function HeroSection({ products }: { products: Product[] }) {
           <h1 className="font-display text-5xl font-semibold leading-[1.02] text-forest sm:text-6xl lg:text-7xl">Ancient Wisdom.<br /><span className="text-gold-dark">Modern Glow.</span></h1>
           <p className="mt-5 max-w-md text-lg text-ink/80">Pure, natural &amp; effective beauty and wellness products for your daily care.</p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <Link href="/shop" className="rounded-md bg-forest px-7 py-3.5 text-sm font-semibold tracking-wide text-white hover:bg-forest-500">SHOP NOW</Link>
+            <Link href="/shop" className="rounded-md bg-forest px-7 py-3.5 text-sm font-semibold tracking-wide text-onforest hover:bg-forest-500">SHOP NOW</Link>
             <Link href="/new-arrivals" className="rounded-md border border-gold bg-white/60 px-7 py-3.5 text-sm font-semibold tracking-wide text-forest hover:bg-white">NEW ARRIVALS</Link>
           </div>
           <ul className="mt-9 grid gap-4 sm:grid-cols-3">
