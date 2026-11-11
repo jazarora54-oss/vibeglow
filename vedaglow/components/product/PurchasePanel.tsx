@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Bell, Check, Heart } from "lucide-react";
+import { Bell, Check, Droplet, Heart, Leaf, ShieldCheck } from "lucide-react";
 import { money } from "@/lib/format";
 import { useCart } from "@/components/CartProvider";
 import Stars from "@/components/ui/Stars";
@@ -15,6 +15,7 @@ export default function PurchasePanel() {
   const { toggleWishlist, wishlist, shipCfg } = useCart(); const liked = wishlist.includes(product.id);
   const ship = shippingBadge(product, shipCfg); const hd = product.handling_days ?? DEFAULT_HANDLING_DAYS;
   const vs = product.variants ?? [];
+  const points = (product.benefits ?? "").split(/\n|;|•/).map(x => x.replace(/^[-*\s]+/, "").trim()).filter(x => x && x.length <= 32).slice(0, 3);
   const opt = (on: boolean, empty: boolean) => `rounded-lg border-2 px-4 py-2 text-sm font-medium transition-colors ${on ? "border-forest bg-forest-100 text-forest" : "border-forest/15 bg-white hover:border-forest/50"} ${empty ? "text-ink/40 line-through" : ""}`;
   const group = (kind: "size" | "color", label: string, vals: string[]) => (
     <div className="mt-6"><p className="mb-2 text-sm font-semibold">{label}: <span className="font-normal text-ink/70">{v?.[kind]}</span></p>
@@ -22,15 +23,16 @@ export default function PurchasePanel() {
         return <button type="button" key={x} role="radio" aria-checked={on} aria-label={empty ? `${x}, out of stock` : x} onClick={() => choose(kind, x)} className={opt(on, empty)}>{x}</button>; })}</div></div>);
   return (
     <div className="min-w-0">
-      {product.brand && <p className="text-sm text-ink/60">Brand: <span className="font-medium text-ink/80">{product.brand}</span></p>}
+      {(product.brand || product.product_type) && <p className="text-xs font-medium uppercase tracking-[0.22em] text-gold-dark">{[product.brand, product.product_type].filter(Boolean).join("  ·  ")}</p>}
       <h1 className="mt-1 font-display text-4xl font-semibold leading-tight text-forest sm:text-5xl">{product.name}</h1>
       <div className="mt-3 flex items-center gap-3">{product.review_count > 0 ? <><Stars value={product.rating} /><span className="font-semibold">{product.rating.toFixed(1)}</span>
         <a href="#reviews" className="text-sm text-forest underline-offset-4 hover:underline">{product.review_count} Review{product.review_count === 1 ? "" : "s"}</a></> : <a href="#reviews" className="text-sm text-forest underline-offset-4 hover:underline">No reviews yet. Be the first to review</a>}</div>
       <div className="mt-5 flex flex-wrap items-baseline gap-3">
-        <span className="text-4xl font-bold text-forest">{money(price)}</span>
+        <span className="font-display text-5xl font-semibold text-forest">{money(price)}</span>
         {pct > 0 && <><span className="text-lg text-ink/50 line-through">{money(compare!)}</span><span className="rounded-md bg-red-700 px-2.5 py-1 text-xs font-bold text-white">SAVE {pct}%</span></>}
       </div>
       <p className="mt-4 max-w-prose text-lg leading-relaxed text-ink/80">{product.short_description}</p>
+      {points.length > 0 && <ul className="mt-5 flex flex-wrap gap-2.5" aria-label="Highlights">{points.map((t, i) => { const I = [Leaf, Droplet, ShieldCheck][i % 3]; return <li key={t} className="flex items-center gap-2 rounded-full border border-forest/15 bg-white px-4 py-2 text-sm font-medium text-forest shadow-sm"><I size={16} strokeWidth={1.8} className="text-gold-dark" />{t}</li>; })}</ul>}
       {sizes.length > 0 && group("size", "Size", sizes)}
       {colors.length > 0 && group("color", "Color", colors)}
       {sku && <p className="mt-4 text-xs text-ink/50">SKU: {sku}</p>}
@@ -40,15 +42,15 @@ export default function PurchasePanel() {
         <p className="mt-1 text-xs text-ink/60">Ships within {hd === 0 ? "the same day" : `${hd} business day${hd === 1 ? "" : "s"}`}. Delivery estimate shown at checkout.</p>
         {ship.kind !== "free" && shipCfg.freeOver > 0 && <p className="mt-1 text-xs font-medium text-gold-dark">Free shipping on orders over {money(shipCfg.freeOver)}.</p>}</div>
       <div id="purchase-actions" className="mt-6 grid gap-3 sm:max-w-md">
-        <button type="button" onClick={add} disabled={out} className="rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-white hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">{out ? "OUT OF STOCK" : "ADD TO CART"}</button>
-        <button type="button" onClick={buyNow} disabled={out} className="rounded-lg border-2 border-gold bg-white py-4 text-sm font-semibold tracking-wide text-gold-dark hover:bg-gold hover:text-white disabled:cursor-not-allowed disabled:border-ink/20 disabled:text-ink/30 disabled:hover:bg-white">BUY IT NOW</button>
+        <button type="button" onClick={add} disabled={out} className="rounded-full bg-gradient-to-br from-gold-light to-gold py-4 text-sm font-semibold tracking-[0.14em] text-ongold shadow-[0_12px_28px_-10px_rgba(184,135,43,0.7)] hover:brightness-105 disabled:cursor-not-allowed disabled:bg-none disabled:bg-ink/30 disabled:text-white disabled:shadow-none">{out ? "OUT OF STOCK" : "ADD TO CART"}</button>
+        <button type="button" onClick={buyNow} disabled={out} className="rounded-full border-2 border-forest bg-white py-4 text-sm font-semibold tracking-[0.14em] text-forest hover:bg-forest hover:text-onforest disabled:cursor-not-allowed disabled:border-ink/20 disabled:text-ink/30 disabled:hover:bg-white">BUY IT NOW</button>
         {out && (notify === "done" ? <p className="rounded-lg bg-forest-100 p-3 text-center text-sm font-medium text-forest">Thanks! We&apos;ll let you know when it&apos;s back.</p> :
-          notify === "form" ? <form onSubmit={e => { e.preventDefault(); setNotify("done"); }} className="flex gap-2"><label className="sr-only" htmlFor="nm">Email</label><input id="nm" type="email" required placeholder="Your email" className="min-w-0 flex-1 rounded-lg border border-forest/20 px-3 py-3 text-sm" /><button type="submit" className="rounded-lg bg-gold px-4 text-sm font-semibold text-white">NOTIFY ME</button></form> :
-          <button type="button" onClick={() => setNotify("form")} className="flex items-center justify-center gap-2 rounded-lg border-2 border-forest py-4 text-sm font-semibold tracking-wide text-forest hover:bg-forest hover:text-white"><Bell size={16} />NOTIFY ME WHEN AVAILABLE</button>)}
+          notify === "form" ? <form onSubmit={e => { e.preventDefault(); setNotify("done"); }} className="flex gap-2"><label className="sr-only" htmlFor="nm">Email</label><input id="nm" type="email" required placeholder="Your email" className="min-w-0 flex-1 rounded-lg border border-forest/20 px-3 py-3 text-sm" /><button type="submit" className="rounded-lg bg-gold px-4 text-sm font-semibold text-ongold">NOTIFY ME</button></form> :
+          <button type="button" onClick={() => setNotify("form")} className="flex items-center justify-center gap-2 rounded-lg border-2 border-forest py-4 text-sm font-semibold tracking-wide text-forest hover:bg-forest hover:text-onforest"><Bell size={16} />NOTIFY ME WHEN AVAILABLE</button>)}
         <button type="button" onClick={() => toggleWishlist(product.id)} aria-pressed={liked} className="flex items-center justify-center gap-2 py-2 text-sm font-medium text-forest hover:text-red-700"><Heart size={18} className={liked ? "fill-red-700 text-red-700" : ""} />{liked ? "Saved to wishlist" : "Add to wishlist"}</button>
       </div>
       {added && <div role="status" className="fade-in mt-4 flex items-center justify-between gap-3 rounded-xl border border-gold/50 bg-white p-4 shadow-card sm:max-w-md">
-        <span className="flex items-center gap-2 font-semibold text-forest"><span className="grid h-7 w-7 place-items-center rounded-full bg-forest text-white"><Check size={15} /></span>Added to your cart</span>
+        <span className="flex items-center gap-2 font-semibold text-forest"><span className="grid h-7 w-7 place-items-center rounded-full bg-forest text-onforest"><Check size={15} /></span>Added to your cart</span>
         <Link href="/cart" className="text-sm font-semibold text-gold-dark underline-offset-4 hover:underline">View Cart</Link></div>}
     </div>
   );

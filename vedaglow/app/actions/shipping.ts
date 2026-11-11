@@ -1,7 +1,7 @@
 "use server";
 import type { Address, ShippingOption } from "@/types";
 import { getProducts } from "@/lib/data/products";
-import { getSiteSettings } from "@/lib/data/site";
+import { getSettingsWithPrivate } from "@/lib/data/site";
 import { lineFromProduct } from "@/lib/shipping/rules";
 import { shipConfigOf, shipFromOf } from "@/lib/shipping/settings";
 import { quoteShipping } from "@/lib/shipping/quote";
@@ -18,7 +18,7 @@ export async function getShippingQuote(input: { items: Line[]; address?: Address
   try {
     if (!(await rateLimitOk("shipquote", 60, 600))) return { ok: false, options: [], message: "Too many requests. Please wait a moment and try again." };
     const wanted = (input?.items ?? []).filter(l => l && typeof l.product_id === "string" && Number.isInteger(l.quantity) && l.quantity >= 1 && l.quantity <= 99).slice(0, 50);
-    const [all, settings] = await Promise.all([getProducts(), getSiteSettings()]);
+    const [all, settings] = await Promise.all([getProducts(), getSettingsWithPrivate()]);
     const byId = new Map(all.map(p => [p.id, p]));
     let subtotal = 0; const lines = [];
     for (const w of wanted) {

@@ -2,6 +2,8 @@ import type { Product } from "@/types";
 import type { SiteSettings } from "@/lib/data/defaults";
 /** SEO / Google helpers. Pure functions (no database) so the website, the product feed and the tests share them. */
 export const GA_RE = /^G-[A-Z0-9]{6,14}$/;
+export const PIXEL_RE = /^\d{8,20}$/;
+export const pixelId = (x: unknown) => { const t = String(x ?? "").trim(); return PIXEL_RE.test(t) ? t : ""; };
 export const gaId = (x: unknown) => { const t = String(x ?? "").trim().toUpperCase(); return GA_RE.test(t) ? t : ""; };
 /** Search Console "HTML tag" token: letters, digits, - and _ only (never anything that could break out of a meta tag). */
 export const verifyToken = (x: unknown) => { const t = String(x ?? "").trim(); const m = t.match(/content="([^"]+)"/); const v = (m ? m[1] : t); return /^[A-Za-z0-9_-]{20,100}$/.test(v) ? v : ""; };

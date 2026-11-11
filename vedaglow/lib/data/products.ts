@@ -88,5 +88,5 @@ export async function queryProducts(q: ShopQuery): Promise<Product[]> {
     newest: (a, b) => b.created_at.localeCompare(a.created_at), "best-selling": (a, b) => (b.sold_count ?? 0) - (a.sold_count ?? 0) || b.review_count - a.review_count,
     "price-low": (a, b) => a.price - b.price, "price-high": (a, b) => b.price - a.price, rating: (a, b) => b.rating - a.rating || b.review_count - a.review_count,
   };
-  return r.sort(by[q.sort]);
+  return r.sort((a, b) => Number(a.stock <= 0) - Number(b.stock <= 0) || by[q.sort](a, b)); // sold-out products always go to the end of the list
 }

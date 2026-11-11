@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { brandOf, notifyEmail } from "@/lib/emailTemplates";
 import { serviceClient } from "@/lib/supabase/server";
 import { getSiteSettings } from "@/lib/data/site";
 import { verifyWebhook, webhookSecret } from "@/lib/payments/stripe";
@@ -15,9 +16,9 @@ export async function POST(req: Request) {
   try {
     if (ev.type === "checkout.session.completed" && obj.payment_status === "paid" && obj.metadata?.order_id) {
       const st = await getSiteSettings();
-      await markPaid(db, String(obj.metadata.order_id), { id: String(obj.id), payment_intent: typeof obj.payment_intent === "string" ? obj.payment_intent : undefined, amount_total: typeof obj.amount_total === "number" ? obj.amount_total : undefined }, { store_name: st.store_name, email: st.email }, process.env.ORDER_NOTIFY_EMAIL || st.email);
+      await markPaid(db, String(obj.metadata.order_id), { id: String(obj.id), payment_intent: typeof obj.payment_intent === "string" ? obj.payment_intent : undefined, amount_total: typeof obj.amount_total === "number" ? obj.amount_total : undefined }, brandOf(st), notifyEmail(st), st.auto_email_invoice);
     } else if (ev.type === "checkout.session.expired" && obj.metadata?.order_id) await expireOrder(db, String(obj.metadata.order_id), String(obj.id));
-    else if (ev.type === "charge.refunded" && obj.refunded === true && typeof obj.payment_intent === "string") await markRefunded(db, obj.payment_intent);
+    else if (ev.type === "charge.refunded" && obj.refunded === true && typeof obj.payment_intent === "string") { const st = await getSiteSettings(); await markRefunded(db, obj.payment_intent, brandOf(st), st.refund_notify_email || notifyEmail(st)); }
   } catch (e) { console.error("stripe webhook error:", e); return NextResponse.json({ error: "failed" }, { status: 500 }); } // Stripe will retry
   return NextResponse.json({ received: true });
 }

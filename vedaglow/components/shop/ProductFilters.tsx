@@ -36,7 +36,7 @@ export default function ProductFilters({ query: q, onChange, onClear, lock, cate
         {lock?.special !== "sale" && <Check label="On Sale" checked={q.onSale} onChange={v => onChange({ onSale: v })} />}
         <Check label="Featured" checked={q.featured} onChange={v => onChange({ featured: v })} />
       </Group>
-      <button onClick={onClear} disabled={!activeFilterCount(q)} className="mt-5 w-full rounded-md border border-forest py-2.5 text-sm font-semibold text-forest hover:bg-forest hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-forest">Clear All Filters</button>
+      <button onClick={onClear} disabled={!activeFilterCount(q)} className="mt-5 w-full rounded-md border border-forest py-2.5 text-sm font-semibold text-forest hover:bg-forest hover:text-onforest disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-forest">Clear All Filters</button>
     </div>
   );
 }

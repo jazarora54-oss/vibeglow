@@ -28,7 +28,7 @@ export default function CartView() {
           <h2 className="mb-4 font-display text-2xl font-semibold text-forest">ORDER SUMMARY</h2>
           <OrderSummary summary={summary} /><div className="mt-5 border-t border-forest/10 pt-5"><CouponBox /></div>
           {(msg || issues.length > 0) && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">⚠ {msg || issues[0].message}</p>}
-          <button type="button" onClick={proceed} disabled={issues.length > 0} className="mt-5 w-full rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-white hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">PROCEED TO CHECKOUT</button>
+          <button type="button" onClick={proceed} disabled={issues.length > 0} className="mt-5 w-full rounded-lg bg-forest py-4 text-sm font-semibold tracking-wide text-onforest hover:bg-forest-500 disabled:cursor-not-allowed disabled:bg-ink/30">PROCEED TO CHECKOUT</button>
           <p className="mt-3 text-center text-xs text-ink/50">{summary.shipping_pending ? "Shipping for some items is calculated from your address at checkout." : "Final totals are confirmed at checkout."}</p>
         </aside>
       </div>

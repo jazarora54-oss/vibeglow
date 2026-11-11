@@ -1,5 +1,6 @@
 import { CreditCard, Lock } from "lucide-react";
-export const PAYMENT_OPTIONS = ["Credit / Debit Card", "PayPal", "Apple Pay", "Google Pay"];
+// Stripe is the only payment provider. (PayPal / Apple Pay / Google Pay placeholders removed; wallets run through Stripe Checkout when enabled in Stripe.)
+export const PAYMENT_OPTIONS = ["Credit / Debit Card"];
 /** UI only. No card data is collected or stored; a secure provider is connected in a later step. */
 export default function PaymentPlaceholder({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return <fieldset className="rounded-2xl border border-forest/10 bg-white p-5 shadow-card"><legend className="sr-only">Payment method</legend>

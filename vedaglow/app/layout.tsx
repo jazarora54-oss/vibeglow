@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, Jost } from "next/font/google";
 import "./globals.css";
 import { siteUrl } from "@/lib/site";
+import { fontClasses } from "@/lib/fonts";
 import { CartProvider } from "@/components/CartProvider";
 import AnnouncementBar from "@/components/layout/AnnouncementBar";
 import Header from "@/components/layout/Header";
@@ -17,10 +17,8 @@ import { getStoreCategories } from "@/lib/data/categories";
 import PromoPopup from "@/components/layout/PromoPopup";
 import DealNudge from "@/components/cart/DealNudge";
 import { themeCss } from "@/lib/theme";
-import GoogleAnalytics from "@/components/GoogleAnalytics";
-import { gaId, ldJson, organizationLd, verifyToken, websiteLd } from "@/lib/seo";
-const display = Cormorant_Garamond({ subsets: ["latin"], weight: ["500", "600", "700"], style: ["normal", "italic"], variable: "--font-display" });
-const sans = Jost({ subsets: ["latin"], variable: "--font-sans" });
+import Tracking from "@/components/Tracking";
+import { gaId, pixelId, ldJson, organizationLd, verifyToken, websiteLd } from "@/lib/seo";
 export async function generateMetadata(): Promise<Metadata> {
   const v = verifyToken((await getSiteSettings()).google_verify);
   return { ...metadata, ...(v ? { verification: { google: v } } : {}) };
@@ -28,9 +26,9 @@ export async function generateMetadata(): Promise<Metadata> {
 const metadata: Metadata = { metadataBase: new URL(siteUrl()), openGraph: { siteName: "VEDAGLOW", type: "website" }, title: "VEDAGLOW – Ancient Wisdom. Modern Glow.", description: "Pure, natural & effective beauty and wellness products for your daily care." };
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const [settings, deals, cats] = await Promise.all([getSiteSettings(), getActiveDeals(), getStoreCategories()]); const shipCfg = shipConfigOf(settings);
-  return (<html lang="en" className={`${display.variable} ${sans.variable}`}><body>
+  return (<html lang="en" className={fontClasses} data-3d={settings.style_3d ? "on" : undefined}><body>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson([organizationLd(settings, siteUrl()), websiteLd(settings, siteUrl())]) }} />
-    <GoogleAnalytics id={gaId(settings.ga_id)} />
+    <Tracking ga={gaId(settings.ga_id)} pixel={pixelId(settings.meta_pixel_id)} />
     {themeCss(settings) && <style dangerouslySetInnerHTML={{ __html: themeCss(settings) }} />}
     <CartProvider shipCfg={shipCfg} deals={deals}><Shell top={<><AnnouncementBar /><Header categories={cats.map(c => ({ slug: c.slug, name: c.name }))} logo={{ url: settings.logo_url, alt: settings.logo_alt, size: settings.logo_size }} /></>} bottom={<><Footer /><AIChatButton /><MiniCart /><Toast /><DealNudge /><PromoPopup enabled={settings.popup_enabled} title={settings.popup_title} message={settings.popup_message} code={settings.popup_code} buttonText={settings.popup_button_text} buttonLink={settings.popup_button_link} delay={settings.popup_delay} /></>}>{children}</Shell></CartProvider>
   </body></html>);

@@ -22,7 +22,7 @@ export default function MiniCart() {
       <aside role="dialog" aria-modal="true" aria-label="Shopping cart" className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-cream shadow-lift">
         <div className="flex items-center justify-between border-b border-forest/10 px-5 py-4"><h2 className="font-display text-2xl font-semibold text-forest">Your Cart ({count})</h2>
           <button ref={closeRef} type="button" onClick={() => setMiniOpen(false)} aria-label="Close cart" className="grid h-10 w-10 place-items-center rounded-full hover:bg-forest-100"><X /></button></div>
-        {!items.length ? <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center"><p className="text-ink/70">Your cart is empty.</p><Link href="/shop" className="rounded-lg bg-forest px-6 py-3 text-sm font-semibold text-white">CONTINUE SHOPPING</Link></div> : <>
+        {!items.length ? <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center"><p className="text-ink/70">Your cart is empty.</p><Link href="/shop" className="rounded-lg bg-forest px-6 py-3 text-sm font-semibold text-onforest">CONTINUE SHOPPING</Link></div> : <>
           <ul className="flex-1 space-y-3 overflow-y-auto p-4">{items.map(i => { const k = lineKey(i); return (
             <li key={k} className="flex gap-3 rounded-xl bg-white p-3 shadow-card"><CartThumb item={i} className="h-16 w-16" />
               <div className="min-w-0 flex-1"><div className="flex justify-between gap-2"><Link href={`/product/${i.slug}`} className="truncate text-sm font-semibold text-forest">{i.name}</Link>
@@ -33,7 +33,7 @@ export default function MiniCart() {
           <div className="space-y-3 border-t border-forest/10 bg-white p-4"><ShippingProgress subtotal={s.subtotal} />
             <div className="flex justify-between text-lg"><span>Subtotal</span><b className="text-forest">{money(s.subtotal)}</b></div>
             {(s.deal_discount ?? 0) > 0 && <div className="flex justify-between text-sm font-semibold text-forest-500"><span>Sale savings</span><span>-{money(s.deal_discount ?? 0)}</span></div>}
-            <div className="grid grid-cols-2 gap-3"><Link href="/cart" className="rounded-lg border-2 border-forest py-3 text-center text-sm font-semibold text-forest">VIEW CART</Link><Link href="/checkout" className="rounded-lg bg-forest py-3 text-center text-sm font-semibold text-white">CHECKOUT</Link></div></div></>}
+            <div className="grid grid-cols-2 gap-3"><Link href="/cart" className="rounded-lg border-2 border-forest py-3 text-center text-sm font-semibold text-forest">VIEW CART</Link><Link href="/checkout" className="rounded-lg bg-forest py-3 text-center text-sm font-semibold text-onforest">CHECKOUT</Link></div></div></>}
       </aside></div>
   );
 }

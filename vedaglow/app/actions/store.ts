@@ -7,13 +7,14 @@ import { findCoupon, calculateSummary, calculateSubtotal } from "@/lib/cart/cart
 import { deliveryRange, lineFromProduct, toShippingMethod, type ShipLine } from "@/lib/shipping/rules";
 import { shipConfigOf, shipFromOf } from "@/lib/shipping/settings";
 import { detailFor, quoteShipping } from "@/lib/shipping/quote";
-import { getSiteSettings } from "@/lib/data/site";
+import { adjustStock } from "@/lib/orderStock";
+import { getSiteSettings, getSettingsWithPrivate } from "@/lib/data/site";
 import { getActiveDeals } from "@/lib/data/deals";
 import { rowToProduct } from "@/lib/data/mappers";
 import { getProductBySlug } from "@/lib/data/products";
 import { answerQuestion } from "@/lib/chatbot";
 import { validateAddress, validateContact } from "@/lib/checkout/validation";
-import { adminNewOrder, orderConfirmation, welcomeEmail } from "@/lib/emailTemplates";
+import { adminNewOrder, confirmSubscriptionEmail, orderConfirmation, welcomeEmail, brandOf, notifyEmail, contactNotify, contactAck } from "@/lib/emailTemplates";
 import { siteUrl } from "@/lib/site";
 import { emailConfigured, sendEmail } from "@/lib/email";
 import { stripeConfigured } from "@/lib/payments/stripe";
@@ -26,7 +27,7 @@ export async function lookupCoupon(code: string): Promise<Coupon | null> {
   if (!c || c.length > 40) return null;
   if (!(await rateLimitOk("coupon", 30, 60))) return null; // stops people guessing coupon codes
   if (!isSupabaseConfigured) return findCoupon(c) ?? null;
-  const { data } = await publicClient().rpc("get_coupon", { p_code: c });
+  const { data } = await (serviceClient() ?? publicClient()).rpc("get_coupon", { p_code: c });
   const r = Array.isArray(data) ? data[0] : null;
   return r ? { code: r.code, percent_off: r.percent_off ? Number(r.percent_off) : undefined, amount_off: r.amount_off ? Number(r.amount_off) : undefined, min_subtotal: r.min_subtotal ? Number(r.min_subtotal) : undefined, product_id: r.product_id ?? undefined } : null;
 }
@@ -77,8 +78,13 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
     items.push({ ...base, line_total: Math.round(unit * l.quantity * 100) / 100, weight_g: sl.weight_g ?? undefined, pkg: sl.pkg ?? undefined, ship_mode: sl.mode }); cart.push(base);
   }
   const coupon = input.coupon_code ? await lookupCoupon(input.coupon_code) : null;
+  if (coupon) { // "first order only" coupons: checked here (the email is known now). If migration-12 is not run yet the column is simply absent and nothing is enforced.
+    const { data: fo } = await db.from("coupons").select("first_order_only").eq("code", coupon.code).maybeSingle();
+    if (fo?.first_order_only) { const em = co.contact.email.trim().toLowerCase().replace(/[%_\\]/g, "\\$&"); const { data: prev } = await db.from("orders").select("id").ilike("email", em).neq("status", "cancelled").limit(1);
+      if (prev && prev.length) return { status: "error", message: "This coupon is for a customer's first order only. Please remove it to continue." }; }
+  }
   // Shipping is worked out again here, on the server, from the database. The browser only says which option the customer picked.
-  const settings = await getSiteSettings();
+  const settings = await getSettingsWithPrivate();
   const q = await quoteShipping({ lines: shipLines, subtotal: calculateSubtotal(cart), to: co.shipping_address, contact: co.contact, cfg: shipConfigOf(settings), from: shipFromOf(settings) });
   if (!q.ok || !q.options.length) return { status: "error", message: q.message ?? "Please choose a shipping option." };
   const opt = q.options.find(o => o.id === co.shipping_method_id);
@@ -99,19 +105,21 @@ export async function submitOrder(input: { items: Line[]; checkout: CheckoutData
       continue; // id collision, try a new one
     }
     if (e) { console.error("order insert failed:", e.message); return { status: "error", message: "Could not save your order. Please try again." }; }
-    // Reduce stock (small shop: read-modify-write is fine) and count the coupon use.
-    for (const { row, used } of stockUpdates.values()) {
-      const variants: any[] = Array.isArray(row.variants) ? row.variants : [];
-      if (variants.length) { const nv = variants.map(v => ({ ...v, stock: Math.max(0, v.stock - (used[v.id] ?? 0)) })); await db.from("products").update({ variants: nv, stock: nv.reduce((s, v) => s + v.stock, 0) }).eq("id", row.id); }
-      else await db.from("products").update({ stock: Math.max(0, row.stock - (used["-"] ?? 0)) }).eq("id", row.id);
+    // Reduce stock and count the coupon use ATOMICALLY in the database (migration 9). If either fails the order is cancelled, never left half-done.
+    const reserved = await adjustStock(db, items, -1, true);
+    if (!reserved) { await db.from("orders").update({ status: "cancelled" }).eq("id", order.id); return { status: "error", message: "Sorry, one of your items just sold out. Please review your cart." }; }
+    if (summary.coupon_code) {
+      const { data: ok, error: ce } = await db.rpc("redeem_coupon", { p_code: summary.coupon_code });
+      const missing = ce && (ce.code === "PGRST202" || ce.code === "42883" || /could not find the function/i.test(ce.message ?? ""));
+      if (missing) { const { data: c } = await db.from("coupons").select("used_count").eq("code", summary.coupon_code).maybeSingle(); if (c) await db.from("coupons").update({ used_count: (c.used_count ?? 0) + 1 }).eq("code", summary.coupon_code); }
+      else if (ce || ok !== true) { await adjustStock(db, items, 1); await db.from("orders").update({ status: "cancelled" }).eq("id", order.id); return { status: "error", message: "Sorry, that coupon has just reached its usage limit. Please remove it and try again." }; }
     }
-    if (summary.coupon_code) { const { data: c } = await db.from("coupons").select("used_count").eq("code", summary.coupon_code).maybeSingle(); if (c) await db.from("coupons").update({ used_count: (c.used_count ?? 0) + 1 }).eq("code", summary.coupon_code); }
     // Emails never block or break an order: failures are only logged.
     if (emailConfigured() && !stripeConfigured()) { // with card payment the emails go out when Stripe confirms the payment
       try {
-        const st = await getSiteSettings(); const brand = { store_name: st.store_name, email: st.email };
-        const mc = orderConfirmation(brand, order); const notify = process.env.ORDER_NOTIFY_EMAIL || st.email; const ma = adminNewOrder(brand, order);
-        await Promise.allSettled([sendEmail({ to: co.contact.email.trim(), ...mc }), notify ? sendEmail({ to: notify, ...ma }) : Promise.resolve()]);
+        const st = await getSiteSettings(); const brand = brandOf(st);
+        const mc = orderConfirmation(brand, order); const notify = notifyEmail(st); const ma = adminNewOrder(brand, order);
+        await Promise.allSettled([sendEmail({ to: co.contact.email.trim(), kind: "order_confirmation", dedupeKey: `order_confirmation:${order.id}`, orderId: order.id, ...mc }), notify ? sendEmail({ to: notify, kind: "admin_new_order", dedupeKey: `admin_new_order:${order.id}`, orderId: order.id, ...ma }) : Promise.resolve()]);
       } catch (err) { console.error("order email error:", err); }
     }
     return { status: "ok", order };
@@ -146,6 +154,12 @@ export async function submitContact(input: { name: string; email: string; subjec
   if (!isSupabaseConfigured || !db) return { ok: false, message: "Messaging is not available right now. Please try again later." };
   const { error } = await db.from("messages").insert({ name, email, subject: subject || null, message });
   if (error) { console.error("contact insert failed:", error.message); return { ok: false, message: "Could not send your message. Please try again." }; }
+  // Email notifications are best effort: the inquiry is already saved, so a mail problem never loses it.
+  if (emailConfigured()) { try {
+    const st = await getSiteSettings(); const b = brandOf(st); const to = (st.support_email || st.email || notifyEmail(st)).trim();
+    const note = contactNotify(b, { name, email, subject, message }), ack = contactAck(b, { name, message });
+    await Promise.allSettled([to ? sendEmail({ to, kind: "inquiry", replyTo: email, ...note }) : Promise.resolve(), sendEmail({ to: email, kind: "inquiry_ack", ...ack })]);
+  } catch (e) { console.error("contact email error:", e); } }
   return { ok: true, message: "Thank you! Your message has been sent. We will get back to you soon." };
 }
 
@@ -170,12 +184,12 @@ export async function trackOrder(orderId: string, email: string): Promise<TrackR
 /** Counts one product page view (no personal data stored). */
 export async function trackView(productId: string): Promise<void> {
   if (!isSupabaseConfigured || typeof productId !== "string" || productId.length > 80) return;
-  try { await publicClient().rpc("track_view", { p_product_id: productId }); } catch { /* analytics must never break the page */ }
+  try { await (serviceClient() ?? publicClient()).rpc("track_view", { p_product_id: productId }); } catch { /* analytics must never break the page */ }
 }
 /** +1 when a visitor hearts a product, -1 when they remove it. Anonymous count. */
 export async function trackWatch(productId: string, delta: number): Promise<void> {
   if (!isSupabaseConfigured || typeof productId !== "string" || productId.length > 80) return;
-  try { await publicClient().rpc("adjust_watchers", { p_product_id: productId, p_delta: delta > 0 ? 1 : -1 }); } catch { /* ignore */ }
+  try { await (serviceClient() ?? publicClient()).rpc("adjust_watchers", { p_product_id: productId, p_delta: delta > 0 ? 1 : -1 }); } catch { /* ignore */ }
 }
 /** "Get offers on this product" sign-up (email only, with consent; every offer email has an unsubscribe link). */
 export async function subscribeOffers(productId: string, email: string): Promise<{ ok: boolean; message: string }> {
@@ -222,12 +236,42 @@ export async function subscribeNewsletter(email: string): Promise<{ ok: boolean;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return { ok: false, message: "Please enter a valid email address." };
   if (!(await rateLimitOk("newsletter", 10, 3600))) return { ok: false, message: "Too many sign-ups from this connection. Please try again later." };
   const db = serviceClient(); if (!isSupabaseConfigured || !db) return { ok: false, message: "Sign-up is not available right now." };
-  const { data: cur } = await db.from("newsletter_subscribers").select("token,unsubscribed").eq("email", em).maybeSingle();
-  if (cur && !cur.unsubscribed) return { ok: true, message: "You are already subscribed. Thank you!" };
-  const { data: row, error } = cur ? await db.from("newsletter_subscribers").update({ unsubscribed: false }).eq("email", em).select("token").maybeSingle() : await db.from("newsletter_subscribers").insert({ email: em }).select("token").maybeSingle();
+  // Double opt-in: nobody is subscribed (or gets the welcome code) until they click the link we email to that address.
+  if (!emailConfigured()) return { ok: false, message: "Sign-up is not available right now. Please try again later." };
+  const { data: cur } = await db.from("newsletter_subscribers").select("token,unsubscribed,confirmed_at,confirm_token").eq("email", em).maybeSingle();
+  if (cur?.confirmed_at && !cur.unsubscribed) return { ok: true, message: "You are already subscribed. Thank you!" };
+  const confirmToken = (cur?.confirm_token as string | null) || crypto.randomUUID().replace(/-/g, "");
+  const fields = { confirm_token: confirmToken, unsubscribed: true, confirmed_at: null, consent_source: "homepage-form" };
+  const { error } = cur ? await db.from("newsletter_subscribers").update(fields).eq("email", em) : await db.from("newsletter_subscribers").insert({ email: em, ...fields });
   if (error) { console.error("newsletter failed:", error.message); return { ok: false, message: "Could not sign you up. Please try again." }; }
+  const st = await getSiteSettings();
+  try { const m = confirmSubscriptionEmail(brandOf(st), { confirmUrl: `${siteUrl()}/newsletter/confirm?t=${confirmToken}` }); await sendEmail({ to: em, kind: "newsletter_confirm", ...m }); } catch (e) { console.error("confirm email failed:", e); return { ok: false, message: "We could not send the confirmation email. Please try again." }; }
+  return { ok: true, message: "Almost done! Please check your inbox and press the confirmation link." };
+}
+/** Called from the link in the confirmation email. Only now does the person become a subscriber. */
+export async function confirmNewsletter(token: string): Promise<{ ok: boolean; message: string }> {
+  const db = serviceClient(); const t = String(token ?? "").slice(0, 80); if (!db || !isSupabaseConfigured || !/^[a-z0-9]{16,80}$/i.test(t)) return { ok: false, message: "This link is not valid." };
+  const { data: row } = await db.from("newsletter_subscribers").select("email,token,confirmed_at,unsubscribed").eq("confirm_token", t).maybeSingle();
+  if (!row) return { ok: false, message: "This link is not valid or has expired." };
   const st = await getSiteSettings(); const code = (st.newsletter_code ?? "").trim();
-  if (emailConfigured() && row?.token) { try { const m = welcomeEmail({ store_name: st.store_name, email: st.email }, { code, unsubscribeUrl: `${siteUrl()}/unsubscribe?t=${row.token}` }); await sendEmail({ to: em, ...m }); } catch (e) { console.error("welcome email failed:", e); } }
+  if (row.confirmed_at && !row.unsubscribed) return { ok: true, message: code ? `You are already subscribed. Your code: ${code}` : "You are already subscribed." };
+  const { error } = await db.from("newsletter_subscribers").update({ unsubscribed: false, confirmed_at: new Date().toISOString() }).eq("confirm_token", t);
+  if (error) return { ok: false, message: "Could not confirm. Please try again." };
+  if (emailConfigured()) { try { const m = welcomeEmail(brandOf(st), { code, unsubscribeUrl: `${siteUrl()}/unsubscribe?t=${row.token}` }); await sendEmail({ to: row.email, kind: "welcome", ...m }); } catch (e) { console.error("welcome email failed:", e); } }
   return { ok: true, message: code ? `Thank you for subscribing! Your code: ${code}` : "Thank you for subscribing!" };
 }
 
+
+/** Customer invoice download. Same proof as tracking (order number AND matching email), rate limited, only for paid orders. Returns the PDF as base64. */
+export async function downloadInvoice(orderId: string, email: string): Promise<{ ok: true; filename: string; base64: string } | { ok: false; message: string }> {
+  const nope = { ok: false as const, message: "We could not find a paid order with those details." };
+  if (!(await rateLimitOk("invoice", 6, 600))) return { ok: false, message: "Too many attempts. Please wait a few minutes and try again." };
+  const id = String(orderId ?? "").trim().toUpperCase().slice(0, 40), em = String(email ?? "").trim().toLowerCase().slice(0, 160);
+  const db = serviceClient(); if (!id || !em || !isSupabaseConfigured || !db) return nope;
+  const { data } = await db.from("orders").select("email,payment_status").eq("id", id).maybeSingle();
+  if (!data || String(data.email).trim().toLowerCase() !== em || data.payment_status !== "paid") return nope;
+  const s = await getSiteSettings(); const { loadInvoice, invoicePdf } = await import("@/lib/invoice");
+  const inv = await loadInvoice(id, brandOf(s));
+  if (!inv) return { ok: false, message: "Your invoice is not available yet. Please contact us." };
+  return { ok: true, filename: `${inv.invoiceNo}.pdf`, base64: Buffer.from(await invoicePdf(inv)).toString("base64") };
+}

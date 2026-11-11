@@ -16,7 +16,7 @@ export interface Product {
   images: string[]; visual: { kind: ProductVisualKind; label: string; color: string };
   tags: ("best-seller" | "new" | "sale" | "featured")[]; variants?: ProductVariant[]; stock: number; created_at: string; /** units really ordered (not cancelled / test); filled in from the database */ sold_count?: number;
   // SEO + eBay-style details + ranking (all optional)
-  seo_title?: string; seo_description?: string; seo_keywords?: string; /** true = ask Google not to list this product */ seo_noindex?: boolean; specifics?: { name: string; value: string }[]; sort_priority?: number;
+  seo_title?: string; seo_description?: string; seo_keywords?: string; /** true = ask Google not to list this product */ seo_noindex?: boolean; /** question/answer pairs shown on the product page and as FAQ structured data */ faqs?: { q: string; a: string }[]; specifics?: { name: string; value: string }[]; sort_priority?: number;
   gtin?: string; mpn?: string; condition?: string; weight_g?: number; dimensions?: string; country_of_origin?: string; shelf_life?: string;
   // Shipping (per listing, like eBay)
   shipping_mode?: ShipMode; shipping_flat_price?: number; shipping_extra_price?: number; handling_days?: number; pkg_length_in?: number; pkg_width_in?: number; pkg_height_in?: number;
@@ -39,7 +39,7 @@ export interface CheckoutData { contact: CustomerInformation; shipping_address: 
 export interface OrderSummary { item_count: number; subtotal: number; discount: number; shipping: number; tax: number; total: number; coupon_code?: string; /** sales (admin -> Deals) applied automatically, e.g. Buy 2 Get 1 Free */ deal_discount?: number; deals?: { name: string; amount: number }[]; /** true on the cart page when carrier rates are only known at checkout */ shipping_pending?: boolean }
 export interface OrderItem { product_id: string; variant_id?: string; name: string; slug?: string; variant_label?: string; sku?: string; image?: string; visual?: Product["visual"]; quantity: number; unit_price: number; line_total: number; weight_g?: number; pkg?: [number, number, number]; ship_mode?: ShipMode }
 export interface TemporaryOrder { id: string; created_at: string; status: "pending-payment"; items: OrderItem[]; summary: OrderSummary; checkout: CheckoutData; shipping_method: ShippingMethod; estimated_delivery: string; shipping_detail?: ShippingDetail; /** one-time key from the checkout: the same key can never create a second order */ idem?: string; /** filled in by the payment provider's confirmation (never card numbers) */ payment?: PaymentInfo }
-export interface PaymentInfo { provider: "stripe"; session_id?: string; payment_intent?: string; amount?: number; paid_at?: string; emailed?: boolean; refunded_at?: string }
+export interface PaymentInfo { provider: "stripe"; session_id?: string; payment_intent?: string; amount?: number; paid_at?: string; emailed?: boolean; refunded_at?: string; refund_emailed?: boolean }
 
 // ---- Shipping ----
 /** What the customer is offered at checkout. */

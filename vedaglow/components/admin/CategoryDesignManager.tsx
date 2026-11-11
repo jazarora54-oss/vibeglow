@@ -1,0 +1,69 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { browserClient } from "@/lib/supabase/browser";
+import { deactivateCategoryBanner, publishCategoryBanner, restoreCategoryBanner, saveCategoryBanner } from "@/app/admin/actions";
+import { type Mood, type Spec, type ElementKind } from "@/lib/creative/render";
+import type { CategoryBanner } from "@/lib/data/categoryBanners";
+import { fitImage, type FitMode } from "@/lib/imageFit";
+import { btn, btn2, card, inp, lbl } from "./ui";
+const CAT_D: Spec = { w: 1920, h: 600, label: "Category desktop 1920×600" }, CAT_M: Spec = { w: 1080, h: 1350, label: "Category mobile 1080×1350" };
+const OK = ["image/jpeg", "image/png", "image/webp"]; const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+type Cat = { slug: string; name: string };
+export default function CategoryDesignManager({ cats, versions }: { cats: Cat[]; versions: CategoryBanner[] }) {
+  const router = useRouter(); const [slug, setSlug] = useState(""); const [msg, setMsg] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState("");
+  const [head, setHead] = useState(""), [sub, setSub] = useState(""), [cta, setCta] = useState(""), [link, setLink] = useState(""), [alt, setAlt] = useState(""), [mood, setMood] = useState<Mood>("auto"), [prompt, setPrompt] = useState(""), [from, setFrom] = useState(""), [until, setUntil] = useState("");
+  const [bul, setBul] = useState(""), [badge, setBadge] = useState(""), [elems, setElems] = useState<ElementKind[]>([]), [tag, setTag] = useState(""), [tpl, setTpl] = useState<"upload" | "auto">("upload");
+  const [fitMode, setFitMode] = useState<FitMode>("auto"); const [dBlob, setDBlob] = useState<Blob | null>(null), [mBlob, setMBlob] = useState<Blob | null>(null), [dUrl, setDUrl] = useState(""), [mUrl, setMUrl] = useState(""), [photo, setPhoto] = useState<ImageBitmap | null>(null), [warn, setWarn] = useState("");
+  const dPrev = useMemo(() => (dBlob ? URL.createObjectURL(dBlob) : dUrl), [dBlob, dUrl]); const mPrev = useMemo(() => (mBlob ? URL.createObjectURL(mBlob) : mUrl), [mBlob, mUrl]);
+  useEffect(() => () => { if (dBlob) URL.revokeObjectURL(dPrev); }, [dBlob, dPrev]); useEffect(() => () => { if (mBlob) URL.revokeObjectURL(mPrev); }, [mBlob, mPrev]);
+  const by = useMemo(() => { const m = new Map<string, CategoryBanner[]>(); for (const v of versions) m.set(v.category_slug, [...(m.get(v.category_slug) ?? []), v]); return m; }, [versions]);
+  const name = (s: string) => cats.find(c => c.slug === s)?.name ?? s; const cname = name(slug);
+  const open = (s: string) => { const list = by.get(s) ?? []; const base = list.find(v => v.status === "published") ?? list[0]; setSlug(s); setMsg(""); setErr(""); setWarn(""); setPhoto(null); setDBlob(null); setMBlob(null);
+    setDUrl(base?.desktop_image ?? ""); setMUrl(base?.mobile_image ?? ""); setHead(base?.heading ?? ""); setSub(base?.subtitle ?? ""); setCta(base?.button_text ?? "Shop now"); setLink(base?.button_link || `/category/${s}`); setAlt(base?.image_alt ?? ""); setMood((base?.mood as Mood) ?? "auto"); setPrompt(base?.ai_prompt ?? ""); setTpl(base?.template ?? "upload"); setBul(""); setBadge(""); setElems([]); setTag(""); setFrom(base?.starts_at?.slice(0, 10) ?? ""); setUntil(base?.ends_at?.slice(0, 10) ?? "");
+    setTimeout(() => document.getElementById("cd-editor")?.scrollIntoView({ behavior: "smooth" }), 50); };
+  const pick = async (f: File | undefined, spec: Spec, set: (b: Blob) => void) => { // own banner: resized to the exact banner size (see lib/imageFit.ts)
+    setErr(""); setWarn(""); if (!f) return; if (!OK.includes(f.type) || f.size > 12 * 1024 * 1024) { setErr("Use a JPG, PNG or WebP picture up to 12 MB."); return; }
+    try { const r = await fitImage(f, spec.w, spec.h, fitMode, "image/webp"); setWarn(r.note); set(r.blob); setTpl("upload"); } catch (e) { setErr(e instanceof Error ? e.message : "Could not open that picture."); }
+  };
+  const save = async (publish: boolean) => {
+    setErr(""); setMsg(""); if (!dBlob && !dUrl) { setErr("Please add the desktop banner picture first."); return; }
+    try { setBusy("Uploading…"); const sb = browserClient(); const id = `category-banners/${slug}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const up = async (b: Blob, p: string) => { const { error } = await sb.storage.from("media").upload(p, b, { cacheControl: "31536000", upsert: false, contentType: b.type || "image/webp" }); if (error) throw new Error(`Upload failed: ${error.message}`); return sb.storage.from("media").getPublicUrl(p).data.publicUrl; };
+      const d = dBlob ? await up(dBlob, `${id}-desktop.webp`) : dUrl; const m = mBlob ? await up(mBlob, `${id}-mobile.webp`) : mUrl; setBusy("Saving…");
+      const r = await saveCategoryBanner({ slug, desktop_image: d, mobile_image: m, heading: head, subtitle: sub, button_text: cta, button_link: link, image_alt: alt || head, template: tpl, mood, ai_prompt: prompt, starts_at: from || null, ends_at: until || null, publish });
+      if (r.ok) { setMsg(r.message ?? "Saved."); router.refresh(); } else setErr(r.message ?? "Could not save.");
+    } catch (e) { setErr(e instanceof Error ? e.message : "Something went wrong."); } finally { setBusy(""); }
+  };
+  const act = async (fn: () => Promise<{ ok: boolean; message?: string }>) => { setErr(""); setMsg(""); setBusy("Working…"); try { const r = await fn(); if (r.ok) { setMsg(r.message ?? "Done."); router.refresh(); } else setErr(r.message ?? "Failed."); } finally { setBusy(""); } };
+  const hist = by.get(slug) ?? [];
+  return (<div className="space-y-5">
+    <section className={card}><h2 className="mb-2 font-display text-2xl font-semibold text-forest">Banner sizes (keep these if you design elsewhere)</h2>
+      <div className="grid gap-3 text-sm sm:grid-cols-2"><div className="rounded-lg border border-forest/15 bg-cream p-3"><b>Category pages</b><br />Computer: <b>1920 × 600 px</b><br />Phone: <b>1080 × 1350 px</b> (a separate picture, not a crop)</div>
+        <div className="rounded-lg border border-forest/15 bg-cream p-3"><b>Homepage banners</b> (Admin → Banners)<br />Computer: <b>1920 × 650 px</b><br />Phone: <b>750 × 950 px</b></div></div>
+      <p className="mt-2 text-xs text-ink/60">JPG, PNG or WebP up to 12 MB. Pictures are stored as WebP. Every category is separate: changing Face Wash never changes Hair Care or the homepage.</p></section>
+    {(msg || err) && <p role="status" className={`rounded-lg px-3 py-2 text-sm font-medium ${err ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>{err || msg}</p>}
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{cats.map(c => { const list = by.get(c.slug) ?? []; const live = list.find(v => v.status === "published"); const last = live ?? list[0];
+      return (<article key={c.slug} className={card}><div className="mb-2 flex items-center justify-between gap-2"><h3 className="font-display text-xl font-semibold text-forest">{c.name}</h3><span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${live ? "bg-green-100 text-green-900" : list.length ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-700"}`}>{live ? "Live" : list.length ? "Not live" : "No banner"}</span></div>
+        <div className="flex items-end gap-2">{last?.desktop_image ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={last.desktop_image} alt="" className="h-16 min-w-0 flex-1 rounded object-cover" /> : <div className="h-16 flex-1 rounded bg-stone-100" />}{last?.mobile_image ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={last.mobile_image} alt="" className="h-16 w-14 rounded object-cover" /> : <div className="h-16 w-14 rounded bg-stone-100" />}</div>
+        <p className="mt-1 text-xs text-ink/60">{last ? `Version ${last.version} · updated ${fmt(last.updated_at)}` : "Nothing yet"}</p>
+        <div className="mt-3 flex flex-wrap gap-2"><button className={btn} disabled={!!busy} onClick={() => open(c.slug)}>{last ? "Edit / replace" : "Add banner"}</button><a className={btn2} href={`/category/${c.slug}`} target="_blank" rel="noreferrer">Preview page</a>{live && <button className={btn2} disabled={!!busy} onClick={() => confirm(`Switch off the ${c.name} banner? Other categories stay the same.`) && act(() => deactivateCategoryBanner(c.slug))}>Deactivate</button>}</div></article>); })}</div>
+    {slug && <section id="cd-editor" className={card}><div className="mb-3 flex items-center justify-between"><h2 className="font-display text-2xl font-semibold text-forest">Editing: {cname}</h2><button className="text-sm underline" onClick={() => setSlug("")}>Close</button></div>
+      <div className="grid gap-4 lg:grid-cols-2"><div className="space-y-4">
+        <div className="rounded-lg border border-forest/15 bg-cream p-3"><p className="mb-2 text-sm font-semibold">Upload your own banner pictures (made in Canva, ChatGPT, Gemini…)</p>
+          <label className={lbl} htmlFor="cdf">How to fit your picture</label><select id="cdf" className={`${inp} mb-3 max-w-sm`} value={fitMode} onChange={e => setFitMode(e.target.value as FitMode)}><option value="auto">Automatic (recommended)</option><option value="fill">Fill the banner (edges may be trimmed)</option><option value="whole">Show the whole picture (blurred sides)</option></select><p className="mb-3 text-xs text-ink/60">Any size works: your picture is resized to the exact banner size automatically. Choose the picture AFTER choosing the fit.</p>
+          <label className={lbl} htmlFor="cdd">Computer picture, 1920 × 600</label><input id="cdd" type="file" accept="image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={e => pick(e.target.files?.[0], CAT_D, setDBlob)} />
+          <label className={`${lbl} mt-3`} htmlFor="cdm">Phone picture, 1080 × 1350</label><input id="cdm" type="file" accept="image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={e => pick(e.target.files?.[0], CAT_M, setMBlob)} /></div>
+        {warn && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{warn}</p>}
+        <div className="grid gap-3 sm:grid-cols-2"><div><label className={lbl} htmlFor="ch">Heading</label><input id="ch" className={inp} maxLength={100} value={head} onChange={e => setHead(e.target.value)} /></div><div><label className={lbl} htmlFor="cs">Subtitle</label><input id="cs" className={inp} maxLength={200} value={sub} onChange={e => setSub(e.target.value)} /></div>
+          <div><label className={lbl} htmlFor="cc">Button text</label><input id="cc" className={inp} maxLength={40} value={cta} onChange={e => setCta(e.target.value)} /></div><div><label className={lbl} htmlFor="cl">Button link</label><input id="cl" className={inp} value={link} onChange={e => setLink(e.target.value)} /></div>
+          <div className="sm:col-span-2"><label className={lbl} htmlFor="ca">Picture description (for Google and screen readers)</label><input id="ca" className={inp} maxLength={160} value={alt} onChange={e => setAlt(e.target.value)} placeholder={head} /></div>
+          <div><label className={lbl} htmlFor="cf">Show from (optional)</label><input id="cf" type="date" className={inp} value={from} onChange={e => setFrom(e.target.value)} /></div><div><label className={lbl} htmlFor="cu">Show until (optional)</label><input id="cu" type="date" className={inp} value={until} onChange={e => setUntil(e.target.value)} /></div></div>
+        <p className="text-xs text-ink/60">The heading and subtitle are saved with the banner. The picture description helps Google and screen readers.</p>
+        <div className="flex flex-wrap gap-2"><button className={btn2} disabled={!!busy} onClick={() => save(false)}>Save as draft</button><button className={btn} disabled={!!busy} onClick={() => save(true)}>{busy || `Publish ${cname} only`}</button></div></div>
+      <div className="space-y-4"><div><p className={lbl}>Computer preview</p>{dPrev ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={dPrev} alt="Computer banner preview" className="w-full rounded-lg border border-forest/15" /> : <div className="flex aspect-[16/5] items-center justify-center rounded-lg bg-stone-100 text-sm text-ink/50">No picture yet</div>}</div>
+        <div><p className={lbl}>Phone preview</p>{mPrev ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={mPrev} alt="Phone banner preview" className="mx-auto max-h-[420px] rounded-lg border border-forest/15" /> : <div className="mx-auto flex aspect-[4/5] max-h-[300px] items-center justify-center rounded-lg bg-stone-100 text-sm text-ink/50">No phone picture (the computer picture is used)</div>}</div>
+        <div><p className={lbl}>Version history ({hist.length})</p><ul className="space-y-2">{hist.map(v => <li key={v.id} className="flex items-center gap-3 rounded-lg border border-forest/15 p-2 text-sm">{v.desktop_image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={v.desktop_image} alt="" className="h-10 w-20 rounded object-cover" />}<span className="min-w-0 flex-1"><b>v{v.version}</b> · {v.status === "published" ? "live" : v.status} · {fmt(v.created_at)}{v.note ? ` · ${v.note}` : ""}<br /><span className="text-ink/60">{v.heading}</span></span>
+          {v.status === "draft" && <button className={btn2} disabled={!!busy} onClick={() => act(() => publishCategoryBanner(v.id))}>Make live</button>}{v.status === "archived" && <button className={btn2} disabled={!!busy} onClick={() => confirm(`Make version ${v.version} live again?`) && act(() => restoreCategoryBanner(v.id))}>Restore</button>}</li>)}{!hist.length && <li className="text-sm text-ink/60">No versions yet.</li>}</ul></div></div></div></section>}
+  </div>);
+}

@@ -16,7 +16,7 @@ export default function ContactForm() {
       <div><label htmlFor="cs" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink/60">Subject (optional)</label><input id="cs" className={inp} value={f.subject} onChange={set("subject")} placeholder="e.g. Order VDG-20260101-ABCDE" /></div>
       <div><label htmlFor="cm" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink/60">Message</label><textarea id="cm" required rows={5} className={inp} value={f.message} onChange={set("message")} /></div>
       <input tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.website} onChange={set("website")} className="absolute -left-[9999px] h-0 w-0 opacity-0" name="website" />
-      <button disabled={busy} className="rounded-lg bg-forest px-6 py-3 text-sm font-semibold tracking-wide text-white hover:bg-forest-500 disabled:opacity-50">{busy ? "SENDING…" : "SEND MESSAGE"}</button>
+      <button disabled={busy} className="rounded-lg bg-forest px-6 py-3 text-sm font-semibold tracking-wide text-onforest hover:bg-forest-500 disabled:opacity-50">{busy ? "SENDING…" : "SEND MESSAGE"}</button>
       {msg && <p role="status" className={`text-sm font-medium ${msg.ok ? "text-green-700" : "text-red-700"}`}>{msg.t}</p>}
     </form>
   );

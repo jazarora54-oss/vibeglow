@@ -4,9 +4,11 @@ import { notFound } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
 import OrderStatusForm from "@/components/admin/OrderStatusForm";
 import OrderShipping from "@/components/admin/OrderShipping";
+import PrintButton from "@/components/admin/PrintButton";
+import EmailInvoiceButton from "@/components/admin/EmailInvoiceButton";
 import OrderRefund from "@/components/admin/OrderRefund";
 import OrderTestToggle from "@/components/admin/OrderTestToggle";
-import { getSiteSettings } from "@/lib/data/site";
+import { getSiteSettings, getSettingsWithPrivate } from "@/lib/data/site";
 import { shipFromOf } from "@/lib/shipping/settings";
 import { shippoMode } from "@/lib/shipping/shippo";
 import { buildParcel, lineFromOrderItem } from "@/lib/shipping/rules";
@@ -14,13 +16,15 @@ import { card } from "@/components/admin/ui";
 import { money } from "@/lib/format";
 import type { Address, TemporaryOrder } from "@/types";
 const Addr = ({ a }: { a: Address }) => <address className="text-sm not-italic leading-relaxed">{a.first_name} {a.last_name}<br />{a.address1}{a.address2 && <>, {a.address2}</>}<br />{a.city}, {a.state} {a.zip}<br />{a.country}</address>;
-export default async function Page({ params }: { params: { id: string } }) {
+export default async function Page(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { data } = await serverClient().from("orders").select("*").eq("id", params.id).maybeSingle();
   if (!data) notFound();
   const o = data.data as TemporaryOrder; const s = o.summary;
-  const parcel = buildParcel(o.items.map(lineFromOrderItem)); const originOk = Boolean(shipFromOf(await getSiteSettings())); const a = o.checkout.shipping_address;
+  const parcel = buildParcel(o.items.map(lineFromOrderItem)); const originOk = Boolean(shipFromOf(await getSettingsWithPrivate())); const a = o.checkout.shipping_address;
   return (<div className="space-y-5"><Link href="/admin/orders" className="text-sm font-semibold text-forest underline">← All orders</Link>
-    <h1 className="font-display text-4xl font-semibold text-forest">{data.id}</h1><p className="text-sm text-ink/60">Placed {fmtDateTime(data.created_at, true)}</p>
+    <h1 className="font-display text-4xl font-semibold text-forest">{data.id}</h1><p className="text-sm text-ink/60">Placed {fmtDateTime(data.created_at, true)}{data.invoice_no ? ` · Invoice ${data.invoice_no}` : ""}</p>
+    <div className="flex flex-wrap gap-2"><a href={`/admin/orders/${data.id}/invoice`} className="rounded-lg bg-forest px-4 py-2 text-sm font-semibold text-onforest hover:bg-forest-500">Download invoice (PDF)</a><Link href={`/admin/customers/${encodeURIComponent(String(data.email).toLowerCase())}`} className="rounded-lg border border-forest/25 bg-white px-4 py-2 text-sm font-semibold text-forest hover:bg-forest-100">View customer</Link><PrintButton /><EmailInvoiceButton orderId={data.id} email={String(data.email)} /></div>
     <OrderTestToggle id={data.id} isTest={Boolean(data.is_test)} />
     <div className="grid items-start gap-5 lg:grid-cols-[1fr_340px]">
       <div className="space-y-5">

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import TrackViewItem from "@/components/product/TrackViewItem";
 import Link from "next/link";
 import { siteUrl } from "@/lib/site";
 import { getSiteSettings } from "@/lib/data/site";
@@ -21,8 +22,9 @@ import ProductReviews from "@/components/product/ProductReviews";
 import ProductSection from "@/components/product/ProductSection";
 import { breadcrumbLd, ldJson } from "@/lib/seo";
 import MobilePurchaseBar from "@/components/product/MobilePurchaseBar";
-type Props = { params: { slug: string } };
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+type Props = { params: Promise<{ slug: string }> };
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const p = await getProductBySlug(params.slug);
   if (!p) return { title: "Product not found | VEDAGLOW" };
   const title = p.seo_title || `${p.name} | VEDAGLOW`, description = p.seo_description || p.short_description;
@@ -30,7 +32,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     openGraph: { title, description, type: "website", url: `/product/${p.slug}`, images: p.images[0] ? [{ url: p.images[0] }] : undefined },
     twitter: { card: p.images[0] ? "summary_large_image" : "summary", title, description } };
 }
-export default async function ProductPage({ params }: Props) {
+export default async function ProductPage(props: Props) {
+  const params = await props.params;
   const product = await getProductBySlug(params.slug);
   if (!product) notFound();
   const cat = await getCategoryBySlug(product.category);
@@ -41,14 +44,18 @@ export default async function ProductPage({ params }: Props) {
   // Structured data so Google can show price, stock and photos in search results.
   const ld = { "@context": "https://schema.org", "@type": "Product", name: product.name, description: product.seo_description || product.short_description, sku: product.sku, mpn: product.mpn, gtin: product.gtin, category: cat?.name,
     brand: product.brand ? { "@type": "Brand", name: product.brand } : undefined,
+    countryOfOrigin: product.country_of_origin ? { "@type": "Country", name: product.country_of_origin } : undefined, keywords: product.seo_keywords || undefined,
+    additionalProperty: product.specifics?.length ? product.specifics.slice(0, 30).map(x => ({ "@type": "PropertyValue", name: x.name, value: x.value })) : undefined,
     ...(reviews.length ? { aggregateRating: { "@type": "AggregateRating", ratingValue: (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1), reviewCount: reviews.length }, review: reviews.slice(0, 5).map(r => ({ "@type": "Review", author: { "@type": "Person", name: r.customer_name }, reviewRating: { "@type": "Rating", ratingValue: r.rating }, reviewBody: r.body, datePublished: r.created_at })) } : {}), image: product.images.length ? product.images : undefined,
     offers: { "@type": "Offer", url: `${siteUrl()}/product/${product.slug}`, priceCurrency: "USD", price: product.price.toFixed(2), itemCondition: "https://schema.org/NewCondition", availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
       shippingDetails: shipRate === undefined ? undefined : { "@type": "OfferShippingDetails", shippingRate: { "@type": "MonetaryAmount", value: shipRate.toFixed(2), currency: "USD" }, shippingDestination: { "@type": "DefinedRegion", addressCountry: "US" } } } };
   return (
     <ProductSelectionProvider product={product}>
+      <TrackViewItem id={product.id} name={product.name} price={product.price} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(breadcrumbLd(siteUrl(), [{ name: "Home", path: "/" }, { name: "Shop", path: "/shop" }, ...(cat ? [{ name: cat.name, path: `/category/${cat.slug}` }] : []), { name: product.name }])) }} />
-      <div className="pb-24 md:pb-0">
+      {product.faqs?.length ? <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: product.faqs.map(f => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) }) }} /> : null}
+      <div className="bg-gradient-to-b from-cream via-white to-white pb-24 md:pb-0">
         <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6">
           <nav aria-label="Breadcrumb" className="mb-6 flex flex-wrap items-center gap-1 text-sm text-ink/60">
             <Link href="/" className="hover:text-forest">Home</Link>
@@ -65,6 +72,7 @@ export default async function ProductPage({ params }: Props) {
         <ProductDetails />
         <ProductInformation product={product} />
         <ProductReviews product={product} reviews={reviews} />
+        {product.faqs?.length ? <section aria-labelledby="faq-h" className="mx-auto max-w-3xl px-4 py-10 sm:px-6"><h2 id="faq-h" className="mb-4 font-display text-3xl font-semibold text-forest">Frequently asked questions</h2><div className="divide-y divide-forest/10 rounded-2xl border border-forest/10 bg-white">{product.faqs.map(f => <details key={f.q} className="group p-4"><summary className="cursor-pointer font-semibold text-forest">{f.q}</summary><p className="mt-2 text-sm leading-relaxed text-ink/80">{f.a}</p></details>)}</div></section> : null}
         <ProductSection title="You May Also Like" products={related} href={cat ? `/category/${cat.slug}` : "/shop"} />
       </div>
       <ViewTracker productId={product.id} />

@@ -6,7 +6,8 @@ import ProductForm from "@/components/admin/ProductForm";
 import { getSiteSettings } from "@/lib/data/site";
 import { getAllCategoryOptions } from "@/lib/data/categoriesAdmin";
 import { shipConfigOf } from "@/lib/shipping/settings";
-export default async function Page({ params }: { params: { id: string } }) {
+export default async function Page(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { data } = await serverClient().from("products").select("*").eq("id", params.id).maybeSingle();
   if (!data) notFound();
   const cfg = shipConfigOf(await getSiteSettings()); const cats = await getAllCategoryOptions();

@@ -13,7 +13,7 @@ const SOCIAL: [TextKey, string][] = [["instagram", "Instagram link"], ["facebook
 export default function SettingsForm({ initial, shippo, emailReady }: { initial: SiteSettings; shippo: "off" | "test" | "live"; emailReady: boolean }) {
   const [v, setV] = useState(initial); const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null); const [pending, start] = useTransition(); const router = useRouter();
   const set = (k: keyof SiteSettings) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setV(x => ({ ...x, [k]: e.target.value }));
-  const setNum = (k: "free_shipping_over" | "default_flat_rate") => (e: React.ChangeEvent<HTMLInputElement>) => setV(x => ({ ...x, [k]: e.target.value === "" ? ("" as unknown as number) : Number(e.target.value) }));
+  const setNum = (k: "free_shipping_over" | "default_flat_rate" | "low_stock_at") => (e: React.ChangeEvent<HTMLInputElement>) => setV(x => ({ ...x, [k]: e.target.value === "" ? ("" as unknown as number) : Number(e.target.value) }));
   return (<div className="space-y-5">
     <section className={card}><h2 className="mb-4 font-display text-2xl font-semibold text-forest">Store &amp; contact details</h2>
       <div className="grid gap-4 sm:grid-cols-2">{F.map(([k, l, ph]) => <div key={k}><label className={lbl} htmlFor={k}>{l}</label><input id={k} className={inp} value={v[k]} placeholder={ph} onChange={set(k)} /></div>)}
@@ -25,6 +25,7 @@ export default function SettingsForm({ initial, shippo, emailReady }: { initial:
       <p className="mb-4 text-sm text-ink/60">Per-product shipping (free / flat / calculated) is set on each product. These are the store-wide numbers and your “ship from” address.</p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div><label className={lbl} htmlFor="fso">Free shipping on orders over (USD)</label><input id="fso" type="number" min={0} step="1" className={inp} value={v.free_shipping_over} onChange={setNum("free_shipping_over")} /><p className="mt-1 text-xs text-ink/50">0 = off. When the cart reaches this amount, shipping is free for the whole order.</p></div>
+        <div><label className={lbl} htmlFor="lsa">Low-stock warning at (units)</label><input id="lsa" type="number" min={0} max={1000} step="1" className={inp} value={v.low_stock_at ?? 5} onChange={setNum("low_stock_at")} /><p className="mt-1 text-xs text-ink/50">Products with this many or fewer left show as “low stock” on the dashboard and Inventory page.</p></div>
         <div><label className={lbl} htmlFor="dfr">Default flat shipping rate (USD)</label><input id="dfr" type="number" min={0} step="0.01" className={inp} value={v.default_flat_rate} onChange={setNum("default_flat_rate")} /><p className="mt-1 text-xs text-ink/50">Used by products set to “Flat rate” that have no price of their own.</p></div></div>
       <h3 className="mb-2 mt-6 font-semibold text-forest">Ship-from address (your return address)</h3>
       <div className="grid gap-4 sm:grid-cols-2">

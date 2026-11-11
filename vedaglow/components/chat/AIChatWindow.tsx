@@ -17,11 +17,11 @@ export default function AIChatWindow({ onClose, onSend }: Props) {
   };
   return (
     <div role="dialog" aria-label="VEDAGLOW Assistant" className="fixed bottom-24 right-4 z-50 flex h-[28rem] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-lift">
-      <div className="flex items-center justify-between bg-forest px-4 py-3 text-white"><b>VEDAGLOW Assistant</b><button onClick={onClose} aria-label="Close chat"><X size={18} /></button></div>
+      <div className="flex items-center justify-between bg-forest px-4 py-3 text-onforest"><b>VEDAGLOW Assistant</b><button onClick={onClose} aria-label="Close chat"><X size={18} /></button></div>
       <div className="flex-1 space-y-2 overflow-y-auto bg-cream p-4 text-sm" aria-live="polite">
-        {msgs.map(m => <p key={m.id} className={`max-w-[85%] whitespace-pre-line rounded-xl px-3 py-2 ${m.role === "user" ? "ml-auto bg-forest text-white" : "bg-white shadow-card"}`}>{m.role === "assistant" ? linkify(m.content) : m.content}</p>)}</div>
+        {msgs.map(m => <p key={m.id} className={`max-w-[85%] whitespace-pre-line rounded-xl px-3 py-2 ${m.role === "user" ? "ml-auto bg-forest text-onforest" : "bg-white shadow-card"}`}>{m.role === "assistant" ? linkify(m.content) : m.content}</p>)}</div>
       <form onSubmit={send} className="flex gap-2 border-t p-3"><input value={text} onChange={e => setText(e.target.value)} aria-label="Message" placeholder="Ask me anything" className="min-w-0 flex-1 rounded-md border border-forest/20 px-3 py-2 text-sm" />
-        <button aria-label="Send" className="grid h-10 w-10 place-items-center rounded-md bg-gold text-white"><Send size={16} /></button></form>
+        <button aria-label="Send" className="grid h-10 w-10 place-items-center rounded-md bg-gold text-ongold"><Send size={16} /></button></form>
     </div>
   );
 }
