@@ -9,7 +9,8 @@ import { getBanners } from "@/lib/data/banners";
 import { getProducts, getRelatedProducts } from "@/lib/data/products";
 import { getSiteSettings } from "@/lib/data/site";
 import { countOf, homeSectionsOf } from "@/lib/data/homeSections";
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ hero?: string }> }) {
+  const forceHero = (await searchParams).hero === "test"; // TEMPORARY: /?hero=test shows the hero even when banners are set. Remove after testing.
   const st = await getSiteSettings(); const order = homeSectionsOf(st); const n = (k: string) => countOf(order, k);
   const [cats, banners, best, fresh, sale, featured, all] = await Promise.all([
     getCategories(), getBanners(), getProducts({ tag: "best-seller", limit: Math.max(5, n("best")) }), getProducts({ tag: "new", limit: n("new"), newest: true }),
@@ -23,7 +24,7 @@ export default async function Home() {
   const heroProducts = [best[2], best[4], featured[1] ?? best[0], best[1]].filter((p): p is NonNullable<typeof p> => Boolean(p));
   const T = (key: string, d: string) => order.find(r => r.key === key)?.title || d;
   const block: Record<string, React.ReactNode> = {
-    banners: banners.length ? <BannerSlider banners={banners} /> : <HeroSection products={heroProducts} />,
+    banners: banners.length && !forceHero ? <BannerSlider banners={banners} /> : <HeroSection products={heroProducts} />,
     categories: <CategorySection categories={catsWithPics} />,
     best: best.length > 0 && <ProductSection title={T("best", "Best Sellers")} products={best} href="/shop" tabs={["Featured", "New Arrivals", "Best Sellers", "On Sale"]} />,
     new: fresh.length > 0 && <ProductSection title={T("new", "New Arrivals")} subtitle="Fresh from the VEDAGLOW shelf" products={fresh} href="/new-arrivals" />,
