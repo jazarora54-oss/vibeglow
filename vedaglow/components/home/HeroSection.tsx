@@ -6,15 +6,15 @@ import type { Product } from "@/types";
 import ProductImage from "@/components/product/ProductImage";
 import GradientText from "@/components/ui/GradientText"; // React Bits
 // Gold shades come from the theme variables, so admin -> Brand & Logo colour changes still apply.
-const goldFlow = ["rgb(var(--gold-dark))", "rgb(var(--gold))", "rgb(var(--gold-dark))"];
+const goldFlow = ["rgb(var(--gold-dark))", "rgb(var(--gold-light))", "rgb(var(--gold))", "rgb(var(--gold-dark))"];
 const trust = [{ icon: Leaf, t: "Natural Ingredients", s: "100% safe & natural" }, { icon: PawPrint, t: "Cruelty Free", s: "Not tested on animals" }, { icon: BadgeCheck, t: "Premium Quality", s: "Trusted & certified" }];
 export default function HeroSection({ products }: { products: Product[] }) {
   return (
     <MotionConfig reducedMotion="user">
     <section className="relative overflow-hidden bg-gradient-to-br from-[#EAF0DA] via-[#F4F1DE] to-[#DDE8CC]">
       <div className="mx-auto grid max-w-7xl items-center gap-6 px-4 py-10 sm:px-6 lg:grid-cols-2 lg:py-16">
-        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}>
-          <h1 className="font-display text-5xl font-semibold leading-[1.02] text-forest sm:text-6xl lg:text-7xl">Ancient Wisdom.<br /><GradientText colors={goldFlow} animationSpeed={10} className="[text-shadow:none]">Modern Glow.</GradientText></h1>
+        <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}>
+          <h1 className="font-display text-5xl font-semibold leading-[1.02] text-forest sm:text-6xl lg:text-7xl">Ancient Wisdom.<br /><GradientText colors={goldFlow} animationSpeed={5} scale={2} className="[text-shadow:none]">Modern Glow.</GradientText></h1>
           <p className="mt-5 max-w-md text-lg text-ink/80">Pure, natural &amp; effective beauty and wellness products for your daily care.</p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Link href="/shop" className="rounded-md bg-forest px-7 py-3.5 text-sm font-semibold tracking-wide text-onforest hover:bg-forest-500">SHOP NOW</Link>
@@ -32,7 +32,7 @@ export default function HeroSection({ products }: { products: Product[] }) {
           <div className="absolute inset-x-6 bottom-0 h-24 rounded-[50%] bg-forest/10 blur-xl" />
           <div className="absolute left-1/2 top-2 h-64 w-64 -translate-x-1/2 rounded-full border-[3px] border-gold/50 sm:h-80 sm:w-80" />
           {products.slice(0, 4).map((p, i) => (
-            <motion.div key={p.id} className={`relative w-1/4 ${i % 2 ? "" : "mb-6"}`} whileHover={{ scale: 1.04 }} transition={{ type: "spring", stiffness: 220, damping: 22 }}>
+            <motion.div key={p.id} className={`relative w-1/4 ${i % 2 ? "" : "mb-6"}`} whileHover={{ scale: 1.06 }} transition={{ type: "spring", stiffness: 220, damping: 22 }}>
               <ProductImage product={p} eager className={`w-full ${i === 1 ? "scale-110" : ""} drop-shadow-xl`} />
             </motion.div>))}
         </div>
